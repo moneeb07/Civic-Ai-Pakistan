@@ -58,6 +58,7 @@ Rules, in order of importance:
 7. Gender must be exactly "Male" or "Female" as printed on the card, or null.
 8. Nationality only if the word is actually printed on the card.
 9. Report "readable" as false if BOTH images are too blurred, too dark, glared, or angled to read reliably. If only one side is unreadable, still return what you can read from the other side.
+9a. Separately, report "frontReadable" and "backReadable": each is true only if THAT specific image was clear enough to read reliably, false if that image was too blurred, too dark, glared, or angled, and null if that image was not provided at all (a front-only submission has backReadable = null, never false). Judge each side purely on its own image quality, independent of whether you could actually read every field on it — a side can be perfectly READABLE while still printing no address, for example.
 10. "confidence" is your overall confidence that the values you returned are correct, from 0 to 1.
 11. "fieldConfidence" carries a separate 0-1 score for each identity field, meaning: how sure are you that every character of THIS field is exactly right. Be honest and be strict — a field you are 80% sure of is a field with a real chance of a wrong digit in someone's national ID number. Score a field you returned as null at 0.
 
@@ -128,6 +129,8 @@ const extractionResponseSchema = {
   type: Type.OBJECT,
   properties: {
     readable: { type: Type.BOOLEAN },
+    frontReadable: { type: Type.BOOLEAN, nullable: true },
+    backReadable: { type: Type.BOOLEAN, nullable: true },
     confidence: { type: Type.NUMBER },
     fieldConfidence: fieldConfidenceSchema,
     fullName: { type: Type.STRING, nullable: true },
@@ -211,6 +214,11 @@ const fieldConfidencePayloadSchema = z
 
 const geminiPayloadSchema = z.object({
   readable: z.boolean(),
+  // Per-side, so a retake never has to guess or re-ask for a side that was
+  // already clear. Absent/malformed is treated as "no signal" (null), never
+  // as a false claim that a side failed.
+  frontReadable: z.boolean().nullable().optional().catch(null),
+  backReadable: z.boolean().nullable().optional().catch(null),
   confidence: z.number().min(0).max(1).catch(0),
   fieldConfidence: fieldConfidencePayloadSchema,
   fullName: nullableText,
@@ -272,6 +280,9 @@ export type CnicFieldConfidence = {
 
 export interface CnicExtraction {
   readable: boolean;
+  /** Null when that side was not submitted at all — never a false claim of failure. */
+  frontReadable: boolean | null;
+  backReadable: boolean | null;
   confidence: number;
   /** Per-field certainty, fed straight into the accuracy gate. */
   fieldConfidence: CnicFieldConfidence;
@@ -454,6 +465,8 @@ export async function extractCnicFromImages(
 
   return {
     readable: data.readable,
+    frontReadable: data.frontReadable ?? null,
+    backReadable: data.backReadable ?? null,
     confidence: data.confidence,
     fieldConfidence: data.fieldConfidence ?? {},
     fullName: data.fullName ?? null,

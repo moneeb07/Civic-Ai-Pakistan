@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/session";
 import { getOwnedReport, updateOwnedReport } from "@/lib/report/store";
+import { ingestReport } from "@/services/authority/ingest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,5 +53,25 @@ export async function POST(
     status: "ready_for_submission",
   });
 
-  return NextResponse.json({ success: true, data: updated });
+  /*
+   * Hand the confirmed report to the authority-side intake pipeline, which
+   * routes it to a department and either attaches it to an existing civic
+   * issue or opens a new one.
+   *
+   * Deliberately best-effort and non-blocking for the citizen: their report is
+   * already saved and confirmed by this point, and if intake is unavailable
+   * the report simply stays unlinked and is picked up by the next pass
+   * (ingestPendingReports scans for exactly this). A citizen must never be
+   * told their complaint failed because a downstream agent was down.
+   */
+  let issueCode: string | null = null;
+  try {
+    const outcome = await ingestReport(id);
+    issueCode = outcome?.issueCode ?? null;
+  } catch {
+    // Logged as a shape, never with report contents.
+    console.error("[reports/confirm] intake deferred for one report");
+  }
+
+  return NextResponse.json({ success: true, data: updated, issueCode });
 }

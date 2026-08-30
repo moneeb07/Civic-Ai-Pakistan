@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 
@@ -12,6 +12,7 @@ import { PasswordInput } from "@/components/auth/password-input";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { signIn } from "@/lib/auth-client";
+import { safeNextPath } from "@/lib/civic/next-path";
 import { describeNetworkError, describeSignInError } from "@/lib/auth-errors";
 import { getDictionary } from "@/lib/i18n";
 import { signInSchema, type SignInValues } from "@/lib/validation/auth";
@@ -20,6 +21,7 @@ const t = getDictionary();
 
 export function SignInForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [formError, setFormError] = useState<string | null>(null);
 
   const {
@@ -46,7 +48,16 @@ export function SignInForm() {
       }
 
       // refresh() re-runs the server components so the new session is picked up.
-      router.push("/dashboard");
+      /*
+       * Honour an explicit destination when one was requested (the landing
+       * page's "Authority sign in" passes ?next=/authority), but only after
+       * validating it — an unchecked value here is an open redirect.
+       *
+       * Without a destination we go to /dashboard, which itself forwards an
+       * authority account to its workspace. So the routing is correct either
+       * way; this just avoids a visible bounce.
+       */
+      router.push(safeNextPath(searchParams.get("next")) ?? "/dashboard");
       router.refresh();
     } catch {
       setFormError(describeNetworkError());

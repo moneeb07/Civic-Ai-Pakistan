@@ -4,6 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { Pool } from "pg";
 import { mkdirSync } from "node:fs";
 
+import { clearStaleLock } from "./clear-stale-lock";
 import { schema } from "./schema";
 
 /*
@@ -64,8 +65,11 @@ function createDatabase() {
 
   // PGlite does not create intermediate directories.
   mkdirSync(LOCAL_DATA_DIR, { recursive: true });
+  // See clear-stale-lock.ts for why this is safe in this single-process setup.
+  clearStaleLock(LOCAL_DATA_DIR);
   return drizzlePglite(new PGlite(LOCAL_DATA_DIR), { schema });
 }
+
 
 type Database = ReturnType<typeof createDatabase>;
 
@@ -73,6 +77,28 @@ type Database = ReturnType<typeof createDatabase>;
  * Next.js re-evaluates modules on hot reload, which would otherwise open a new
  * pool — or a second PGlite instance holding the same data directory — on every
  * edit. Cache on globalThis so there is exactly one instance per process.
+ *
+ * KNOWN LIMITATION, confirmed by direct investigation, not yet fully solved:
+ * this cache does not fully protect PGlite specifically. Editing or adding a
+ * source file while `npm run dev` is running can still leave the app reading
+ * an empty database on every route from that point on, even though this same
+ * process served correct data moments before, and the effect is identical
+ * under both Turbopack and `next dev --webpack` — so it is not a bundler
+ * choice to fix, but some deeper interaction between Next.js dev-mode's
+ * server-module reloading and PGlite's single-writer, no-cross-instance-
+ * coordination design. A genuine `new PGlite()` call very likely still runs a
+ * second time somewhere in that reload path despite the check below, and two
+ * live instances against one data directory corrupt each other's view.
+ *
+ * The one fully reliable recovery, verified repeatedly: a full process
+ * restart (kill `next dev`, start it again) — never a partial/hot reload.
+ * `clearStaleLock` below handles the OTHER, separate failure this data
+ * directory is prone to (a stale lock left by an unclean kill, e.g. SIGKILL
+ * or `npm run build` overwriting `.next` under a live `npm run dev`), which
+ * IS fully fixed and verified across many clean restart cycles.
+ *
+ * `npm run build`/`start` are unaffected: production requires DATABASE_URL,
+ * so PGlite is never opened there at all — this is a local-dev-only risk.
  */
 const globalForDb = globalThis as unknown as { __civicaiDb?: Database };
 

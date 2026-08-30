@@ -185,6 +185,8 @@ export async function POST(request: Request) {
      */
     const gate = evaluateExtractionConfidence({
       readable: extraction.readable,
+      frontReadable: extraction.frontReadable,
+      backReadable: extraction.backReadable,
       confidence: extraction.confidence,
       fieldConfidence: extraction.fieldConfidence,
       values,
@@ -204,6 +206,9 @@ export async function POST(request: Request) {
           success: false,
           reason: "low_confidence",
           gateFailure: failure,
+          // Which physical side to retake — spec: independent front/back
+          // retry. "both" when the read genuinely does not distinguish them.
+          affectedSide: gate.affectedSide ?? "both",
           message: GATE_MESSAGES[failure],
         },
         { status: 422 },

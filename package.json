@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed:authority": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-authority.mts",
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {

@@ -1,13 +1,27 @@
 "use client";
 
 import * as React from "react";
-import { Camera, CircleAlert, ImageUp, Loader2, RotateCcw, X } from "lucide-react";
+import {
+  Camera,
+  CircleAlert,
+  ImageUp,
+  Loader2,
+  RotateCcw,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
 
+import { useAssistedMode } from "@/components/assisted/assisted-mode-provider";
+import { useVoiceGuidance } from "@/components/assisted/use-voice-guidance";
 import { Button } from "@/components/ui/button";
 import {
   analyzeCnicFrame,
+  DISTANCE_BAND_MAX,
+  DISTANCE_BAND_MIN,
   type FrameIssue,
   type FrameQualityResult,
+  type FrameTier,
 } from "@/lib/cnic-frame-quality";
 import { getDictionary } from "@/lib/i18n";
 import { prepareCnicImage } from "@/lib/image";
@@ -52,6 +66,26 @@ const CAPTURE_DELAY_MS = 400;
 const ANALYSIS_WIDTH = 240;
 /** Live preview resolution cap, so a high-megapixel phone camera doesn't redraw a huge canvas 60x/sec. */
 const MAX_DISPLAY_DIMENSION = 1280;
+
+/*
+ * The three border colours, matching the tiers in cnic-frame-quality.ts.
+ * Drawn on the canvas rather than set in CSS because the frame is part of the
+ * composited video, not an element layered over it.
+ */
+const TIER_COLOURS: Record<FrameTier, string> = {
+  poor: "#dc2626",
+  improving: "#f59e0b",
+  acceptable: "#0b8f6a",
+};
+
+/**
+ * Shortest gap between two spoken instructions.
+ *
+ * Voice guidance assists; it does not narrate. Without this floor a citizen
+ * moving the card around would be talked over continuously by every passing
+ * state change, which is worse than silence.
+ */
+const VOICE_MIN_INTERVAL_MS = 3500;
 
 /** CNIC is ID-1 format: 85.6 × 54mm ≈ 1.586:1. */
 const CNIC_ASPECT = 1.586;
@@ -107,8 +141,8 @@ function analysisRectFor(guide: GuideRect, width: number, height: number): Guide
   };
 }
 
-function drawGuide(ctx: CanvasRenderingContext2D, guide: GuideRect, ready: boolean) {
-  const colour = ready ? "#0b8f6a" : "#dc2626";
+function drawGuide(ctx: CanvasRenderingContext2D, guide: GuideRect, tier: FrameTier) {
+  const colour = TIER_COLOURS[tier];
   const radius = Math.max(8, guide.w * 0.035);
 
   ctx.save();
@@ -154,6 +188,8 @@ interface CnicCaptureProps {
   frameLabel?: string;
   /** Overrides the alt text on the confirmation preview. */
   previewAlt?: string;
+  /** Title shown in the full-screen scanner's top bar. */
+  title?: string;
 }
 
 /*
@@ -171,7 +207,10 @@ export function CnicCapture({
   disabled,
   frameLabel = t.identity.frameLabel,
   previewAlt = "The CNIC photo you just took",
+  title = t.identity.autoCapture.scannerTitleFront,
 }: CnicCaptureProps) {
+  const { enabled: voiceEnabled, setEnabled: setVoiceEnabled } = useAssistedMode();
+  const { supported: voiceSupported, speak, stop: stopSpeaking } = useVoiceGuidance();
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const analysisCanvasRef = React.useRef<HTMLCanvasElement | null>(null);
@@ -197,6 +236,20 @@ export function CnicCapture({
   const [status, setStatus] = React.useState<CaptureStatus>("detecting");
   const [issue, setIssue] = React.useState<FrameIssue | null>(null);
   const [debug, setDebug] = React.useState<FrameQualityResult | null>(null);
+  /*
+   * The live readability reading. Kept in state (not just a ref) because the
+   * meter and the gauge are ordinary DOM, unlike the border, which is painted
+   * into the canvas — but they all read from the same analysis result, so they
+   * cannot drift apart.
+   */
+  const [readability, setReadability] = React.useState(0);
+  const [tier, setTier] = React.useState<FrameTier>("poor");
+  const [distance, setDistance] = React.useState(0);
+  /** Mirrors `tier` for the render loop, which runs outside React. */
+  const tierRef = React.useRef<FrameTier>("poor");
+  /** What the assistant last said, and when — the throttle for voice guidance. */
+  const lastSpokenRef = React.useRef<string | null>(null);
+  const lastSpokeAtRef = React.useRef(0);
 
   const stopCamera = React.useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -215,10 +268,16 @@ export function CnicCapture({
     captureInFlightRef.current = false;
     issueRef.current = null;
     statusRef.current = "detecting";
+    tierRef.current = "poor";
     lastAnalysisRef.current = 0;
+    lastSpokenRef.current = null;
+    lastSpokeAtRef.current = 0;
     setStatus("detecting");
     setIssue(null);
     setDebug(null);
+    setReadability(0);
+    setTier("poor");
+    setDistance(0);
   }, []);
 
   // Release the camera if the citizen navigates away mid-capture.
@@ -470,6 +529,16 @@ export function CnicCapture({
             setIssue(result.issue);
           }
 
+          /*
+           * The meter, the gauge and the border all come from this one result.
+           * tierRef is what the border reads (it repaints every animation
+           * frame, outside React); the state below is what the DOM reads.
+           */
+          tierRef.current = result.tier;
+          setTier(result.tier);
+          setReadability(result.readability);
+          setDistance(result.distance);
+
           if (SHOW_DEBUG) setDebug(result);
 
           if (result.ready) {
@@ -501,10 +570,15 @@ export function CnicCapture({
       }
 
       const displayGuide = guideRectFor(canvas.width, canvas.height);
+      /*
+       * "capturing" means the shutter is already armed on a frame that was
+       * green — holding the border green through the pre-capture pause avoids
+       * a flicker back to orange on the last analysis tick before the photo.
+       */
       drawGuide(
         ctx,
         displayGuide,
-        statusRef.current === "ready" || statusRef.current === "capturing",
+        statusRef.current === "capturing" ? "acceptable" : tierRef.current,
       );
 
       rafRef.current = requestAnimationFrame(tick);
@@ -523,6 +597,51 @@ export function CnicCapture({
     // (and reopen the camera-session timing) on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraState, disabled]);
+
+  /*
+   * Voice guidance during capture.
+   *
+   * Assistive, not narrative: it speaks only when the situation genuinely
+   * CHANGES, never more than once every few seconds, and only while the
+   * citizen has voice guidance switched on. Every phrase is a fixed
+   * instruction from the dictionary — no value read off the card is ever
+   * spoken, so a CNIC number cannot be announced across a crowded room.
+   */
+  React.useEffect(() => {
+    if (!voiceEnabled || !voiceSupported) return;
+    if (cameraState !== "live" || preview) return;
+
+    const phrase =
+      status === "ready" || status === "capturing"
+        ? t.voice.capture.ready
+        : status === "detecting"
+          ? t.voice.capture.searching
+          : issue
+            ? t.voice.capture[issue]
+            : null;
+
+    if (!phrase || phrase === lastSpokenRef.current) return;
+
+    const now = Date.now();
+    if (now - lastSpokeAtRef.current < VOICE_MIN_INTERVAL_MS) return;
+
+    lastSpokenRef.current = phrase;
+    lastSpokeAtRef.current = now;
+    speak(phrase);
+  }, [voiceEnabled, voiceSupported, cameraState, preview, status, issue, speak]);
+
+  function toggleVoice() {
+    if (voiceEnabled) stopSpeaking();
+    setVoiceEnabled(!voiceEnabled);
+    // A fresh decision deserves a fresh phrase rather than a throttled silence.
+    lastSpokenRef.current = null;
+    lastSpokeAtRef.current = 0;
+  }
+
+  function cancelScanner() {
+    stopSpeaking();
+    stopCamera();
+  }
 
   async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -551,53 +670,58 @@ export function CnicCapture({
   // -- Preview: confirm or retake -------------------------------------------
   if (preview) {
     return (
-      <div className="space-y-4">
-        <div className="overflow-hidden rounded-[20px] border border-line bg-ink/5">
+      <ScannerShell title={title} onCancel={() => setPreview(null)}>
+        <div className="flex flex-1 items-center justify-center overflow-hidden px-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={preview.dataUrl}
             alt={previewAlt}
-            className="w-full"
+            className="max-h-full w-full rounded-[20px] object-contain"
           />
         </div>
 
-        <div className="flex flex-col gap-2.5 sm:flex-row">
-          <Button
-            variant="secondary"
-            size="full"
-            onClick={() => setPreview(null)}
-            disabled={disabled}
-          >
-            <RotateCcw className="size-4" aria-hidden="true" />
-            {t.identity.retake}
-          </Button>
-          <Button
-            size="full"
-            onClick={() => onCaptured(preview)}
-            disabled={disabled}
-          >
-            {t.identity.usePhoto}
-          </Button>
-        </div>
-      </div>
+        <footer className="bg-black px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+          <div className="flex flex-col gap-2.5 sm:flex-row">
+            <Button
+              variant="secondary"
+              size="full"
+              onClick={() => {
+                // Straight back to the viewfinder rather than out to the card
+                // screen — a retake is a continuation, not a restart.
+                setPreview(null);
+                void startCamera();
+              }}
+              disabled={disabled}
+            >
+              <RotateCcw className="size-4" aria-hidden="true" />
+              {t.identity.retake}
+            </Button>
+            <Button size="full" onClick={() => onCaptured(preview)} disabled={disabled}>
+              {t.identity.usePhoto}
+            </Button>
+          </div>
+        </footer>
+      </ScannerShell>
     );
   }
 
-  // -- Live camera -----------------------------------------------------------
+  // -- Live camera: the full-screen scanner ---------------------------------
   if (cameraState === "live" || cameraState === "starting") {
     /*
-     * Everything below reads from `status` and nothing else. The message can
-     * no longer contradict the border, because they are no longer two
-     * independent derivations of "is this frame good" — a stale "CNIC is too
-     * far" over a green border was exactly that bug.
+     * Everything below reads from `status`, `tier` and `readability`, all of
+     * which come from one analysis result. The border colour, the percentage,
+     * the gauge and the instruction can no longer contradict each other,
+     * because they are no longer independent derivations of "is this frame
+     * good" — a stale "CNIC is too far" over a green border was exactly that
+     * bug.
      */
     const ready = status === "ready" || status === "capturing";
+    const displayTier: FrameTier = ready ? "acceptable" : tier;
 
     // Exactly one message at a time: a short neutral line until the first
-    // analysis lands (the full instruction is already shown once, as a static
-    // caption above the camera — no need to repeat it here), then whichever
-    // single issue matters most, then the hold-still cue.
-    const pillText =
+    // analysis lands, then whichever single issue matters most, then the
+    // hold-still cue.
+    const instruction =
       cameraState === "starting"
         ? t.identity.cameraStarting
         : status === "detecting"
@@ -608,20 +732,24 @@ export function CnicCapture({
               ? t.identity.autoCapture.issues[issue]
               : t.identity.autoCapture.detecting;
 
-    const pillTone: "neutral" | "red" | "green" =
-      cameraState === "starting" || status === "detecting"
-        ? "neutral"
-        : ready
-          ? "green"
-          : "red";
+    const live = cameraState === "live";
 
     return (
-      <div className="space-y-4">
-        <p className="text-center text-[0.8125rem] leading-relaxed text-muted">
-          {t.identity.autoCapture.instruction}
+      <ScannerShell title={title} onCancel={cancelScanner}>
+        {/*
+          One instruction, in the same place every time. The reference banking
+          flow puts this directly under the title bar rather than floating it
+          over the card, where it competes with the thing the citizen is
+          trying to look at.
+        */}
+        <p
+          className="px-6 py-3 text-center text-[0.9375rem] font-medium text-white"
+          aria-live="polite"
+        >
+          {instruction}
         </p>
 
-        <div className="relative overflow-hidden rounded-[20px] bg-ink">
+        <div className="relative flex-1 overflow-hidden">
           {/* The real frame source. Kept in normal layout (not display:none) so
               mobile browsers keep decoding it, but never shown directly — the
               canvas below draws the composited, annotated frame instead. */}
@@ -632,69 +760,64 @@ export function CnicCapture({
             className="pointer-events-none absolute inset-0 h-full w-full opacity-0"
           />
 
-          {/* No object-cover: the bitmap is sized to this box and the
-              cover-crop is done when drawing, so the guide can't be cropped
-              off the sides. */}
-          <canvas
-            ref={canvasRef}
-            className="aspect-[3/4] w-full sm:aspect-[4/3]"
-          />
+          {/* The bitmap is sized to this box and the cover-crop is done when
+              drawing, so the guide can never be cropped off the sides. */}
+          <canvas ref={canvasRef} className="h-full w-full" />
 
-          {/*
-            Status badge and instruction pill are stacked in one column,
-            not two independently-positioned overlays — at typical phone
-            widths the badge's full spec-mandated text ("Not Ready — Fix the
-            highlighted issue") is wide enough that placing it beside the
-            centered pill causes them to visually collide.
-          */}
-          <div className="pointer-events-none absolute inset-x-0 top-3 flex flex-col items-center gap-2 px-16">
-            {status !== "detecting" && cameraState === "live" ? (
-              <span
-                className={cn(
-                  "inline-flex max-w-full items-center gap-1.5 rounded-full px-3 py-1.5 text-[0.75rem] font-semibold text-white backdrop-blur",
-                  ready ? "bg-civic-600/90" : "bg-danger/90",
-                )}
-              >
-                {ready ? "🟢" : "🔴"}
-                {ready ? t.identity.autoCapture.statusPerfect : t.identity.autoCapture.statusNotReady}
-              </span>
-            ) : null}
-
-            <p
-              className={cn(
-                "w-fit max-w-full rounded-full px-4 py-2 text-center text-[0.8125rem] font-medium text-white backdrop-blur",
-                pillTone === "red" && "bg-danger/90",
-                pillTone === "green" && "bg-civic-600/90",
-                pillTone === "neutral" && "bg-ink/75",
-              )}
-              aria-live="polite"
-            >
-              {pillText}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={stopCamera}
-            aria-label={t.identity.cancel}
-            className="absolute end-3 top-3 inline-flex size-10 items-center justify-center rounded-full bg-ink/70 text-white backdrop-blur transition-colors hover:bg-ink"
-          >
-            <X className="size-5" aria-hidden="true" />
-          </button>
+          {live ? <DistanceGauge value={distance} tier={displayTier} /> : null}
         </div>
 
-        {SHOW_DEBUG ? <FrameDebugPanel result={debug} status={status} /> : null}
+        <footer className="bg-black px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+          <ReadabilityMeter
+            value={live ? readability : 0}
+            tier={displayTier}
+            active={live && status !== "detecting"}
+          />
 
-        <Button
-          size="full"
-          onClick={capture}
-          loading={busy}
-          disabled={cameraState !== "live" || disabled || status === "capturing"}
-        >
-          {!busy ? <Camera className="size-4" aria-hidden="true" /> : null}
-          {t.identity.capture}
-        </Button>
-      </div>
+          {SHOW_DEBUG ? (
+            <div className="mt-3 rounded-[14px] bg-white p-1">
+              <FrameDebugPanel result={debug} status={status} />
+            </div>
+          ) : null}
+
+          <div className="mt-4 flex items-center gap-3">
+            {voiceSupported ? (
+              <button
+                type="button"
+                onClick={toggleVoice}
+                aria-pressed={voiceEnabled}
+                className="inline-flex min-h-12 shrink-0 items-center gap-2 rounded-[var(--radius-field)] border border-white/25 px-4 text-[0.8125rem] font-semibold text-white transition-colors hover:bg-white/10"
+              >
+                {voiceEnabled ? (
+                  <Volume2 className="size-4" aria-hidden="true" />
+                ) : (
+                  <VolumeX className="size-4" aria-hidden="true" />
+                )}
+                <span className="sr-only sm:not-sr-only">
+                  {voiceEnabled
+                    ? t.identity.autoCapture.voiceOn
+                    : t.identity.autoCapture.voiceOff}
+                </span>
+              </button>
+            ) : null}
+
+            {/*
+              Manual capture is always available, at any readability. Auto-
+              capture is a convenience; a citizen who judges their own photo
+              good enough is not overruled by a heuristic.
+            */}
+            <Button
+              size="full"
+              onClick={capture}
+              loading={busy}
+              disabled={!live || disabled || status === "capturing"}
+            >
+              {!busy ? <Camera className="size-4" aria-hidden="true" /> : null}
+              {t.identity.capture}
+            </Button>
+          </div>
+        </footer>
+      </ScannerShell>
     );
   }
 
@@ -781,6 +904,166 @@ export function CnicCapture({
         tabIndex={-1}
         aria-hidden="true"
       />
+    </div>
+  );
+}
+
+/*
+ * The full-screen scanner chrome: a branded top bar with a way out, and the
+ * viewfinder below it.
+ *
+ * Taking over the whole screen is the point. A document scanner shown inside a
+ * page card competes with the page's own scrolling and chrome, and leaves the
+ * frame too small to aim with on a phone; every banking e-KYC flow this is
+ * modelled on goes full-bleed for exactly that reason. It is a modal dialog,
+ * and it is labelled as one, so a screen reader announces which side of the
+ * card is being asked for.
+ */
+function ScannerShell({
+  title,
+  onCancel,
+  children,
+}: {
+  title: string;
+  onCancel: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+      className="fixed inset-0 z-50 flex flex-col bg-black"
+    >
+      <header className="flex items-center gap-2 bg-civic-600 px-2 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-[0.9375rem] font-medium transition-colors hover:bg-white/15"
+        >
+          <X className="size-4" aria-hidden="true" />
+          {t.identity.cancel}
+        </button>
+
+        <h2 className="flex-1 text-center text-[0.9375rem] font-semibold">{title}</h2>
+
+        {/* Balances the cancel control so the title sits truly centred. */}
+        <span className="w-[5.5rem] shrink-0" aria-hidden="true" />
+      </header>
+
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The far/close gauge down the side of the viewfinder.
+ *
+ * A percentage tells someone their photo is poor; it does not tell them which
+ * way to move. The gauge does — it is the one control on this screen that maps
+ * a problem directly onto a physical action, which is why it is worth the
+ * space beside the frame.
+ *
+ * The lit band is drawn at DISTANCE_BAND_MIN..MAX, the exact coordinates the
+ * analyser maps its acceptable coverage range onto, so "marker inside the green
+ * ticks" and "distance check passes" are guaranteed to be the same statement.
+ */
+const GAUGE_TICKS = 15;
+
+function DistanceGauge({ value, tier }: { value: number; tier: FrameTier }) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-y-0 start-0 flex w-[4.5rem] flex-col items-center justify-between bg-gradient-to-r from-black/65 to-transparent py-5"
+      role="img"
+      aria-label={t.identity.autoCapture.gaugeLabel}
+    >
+      <span className="text-[0.5625rem] font-bold tracking-[0.14em] text-white/70">
+        {t.identity.autoCapture.gaugeFar}
+      </span>
+
+      <div className="relative my-3 w-full flex-1">
+        {Array.from({ length: GAUGE_TICKS }, (_, index) => {
+          const at = index / (GAUGE_TICKS - 1);
+          const inBand = at >= DISTANCE_BAND_MIN && at <= DISTANCE_BAND_MAX;
+
+          return (
+            <span
+              key={index}
+              style={{ top: `${at * 100}%` }}
+              className={cn(
+                "absolute start-1/2 h-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition-colors duration-200",
+                inBand ? "w-7 bg-civic-500" : "w-4 bg-white/35",
+              )}
+            />
+          );
+        })}
+
+        {/* The marker takes its colour from the same tier the border does. */}
+        <span
+          style={{ top: `${value * 100}%`, color: TIER_COLOURS[tier] }}
+          className="absolute start-0 -translate-y-1/2 text-[0.875rem] leading-none transition-[top] duration-150"
+          aria-hidden="true"
+        >
+          ▶
+        </span>
+      </div>
+
+      <span className="text-[0.5625rem] font-bold tracking-[0.14em] text-white/70">
+        {t.identity.autoCapture.gaugeClose}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The live readability meter.
+ *
+ * Labelled "Readability" and footnoted, on purpose. This number describes the
+ * photograph — whether text can plausibly be resolved from it — and says
+ * nothing about whether the details read off it will be correct. Presenting it
+ * as an accuracy figure would be a claim CivicAI cannot make until Gemini has
+ * actually read the card, and even then only per field.
+ */
+function ReadabilityMeter({
+  value,
+  tier,
+  active,
+}: {
+  value: number;
+  tier: FrameTier;
+  active: boolean;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/55">
+          {t.identity.autoCapture.readability}
+        </span>
+        <span className="text-[0.8125rem] font-semibold text-white">
+          {active ? `${value}% · ${t.identity.autoCapture.tiers[tier]}` : "—"}
+        </span>
+      </div>
+
+      <div
+        role="progressbar"
+        aria-valuenow={active ? value : 0}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={t.identity.autoCapture.readability}
+        className="mt-2 h-2 overflow-hidden rounded-full bg-white/15"
+      >
+        <div
+          style={{
+            width: `${active ? value : 0}%`,
+            backgroundColor: TIER_COLOURS[tier],
+          }}
+          className="h-full rounded-full transition-[width,background-color] duration-200"
+        />
+      </div>
+
+      <p className="mt-1.5 text-[0.6875rem] leading-relaxed text-white/45">
+        {t.identity.autoCapture.readabilityNote}
+      </p>
     </div>
   );
 }

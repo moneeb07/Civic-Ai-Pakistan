@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { analyzeCnicFrame, type RgbaBuffer } from "../src/lib/cnic-frame-quality";
+import {
+  analyzeCnicFrame,
+  DISTANCE_BAND_MAX,
+  DISTANCE_BAND_MIN,
+  IMPROVING_THRESHOLD,
+  READABLE_THRESHOLD,
+  type RgbaBuffer,
+} from "../src/lib/cnic-frame-quality";
 
 /*
  * These tests build small synthetic RGBA scenes by hand — a background colour
@@ -291,6 +298,99 @@ describe("analyzeCnicFrame", () => {
     assert.equal(result.metrics.edgeTouchCount, 0);
   });
 
+  /*
+   * The rule the whole auto-capture flow depends on, stated as a provable
+   * property rather than left implicit: "the CNIC is detected" is only one of
+   * eight checks, so a card that is merely IN FRAME but poorly lit, blurry, or
+   * glared must never read as ready. Sampled across every scenario this file
+   * already builds, so a future change to any one check that quietly makes
+   * `ready` depend on fewer signals fails here immediately.
+   */
+  it("is ready if and only if every individual check passed — detection alone is never enough", () => {
+    const scenes: Uint8ClampedArray[] = [];
+
+    let d = makeCanvas(WIDTH, HEIGHT, [230, 230, 230]);
+    scenes.push(d); // no_card
+
+    d = makeCanvas(WIDTH, HEIGHT, [230, 230, 230]);
+    paintTexturedRect(d, WIDTH, { x: 65, y: 40, w: 70, h: 45 }, [90, 130, 110]);
+    scenes.push(d); // detected, but too_far — the exact case the rule exists for
+
+    d = makeCanvas(WIDTH, HEIGHT, [235, 235, 235]);
+    paintFlatRect(d, WIDTH, { x: 40, y: 22, w: 120, h: 82 }, [90, 130, 110]);
+    scenes.push(d); // detected AND well framed, but blurry
+
+    scenes.push(wellFramedCard()); // every check passes
+
+    for (const scene of scenes) {
+      const result = analyzeCnicFrame(buffer(scene));
+      const allChecksPassed = Object.values(result.checks).every(Boolean);
+      assert.equal(
+        result.ready,
+        allChecksPassed,
+        `ready=${result.ready} disagreed with checks=${JSON.stringify(result.checks)}`,
+      );
+      // Detection specifically must never be sufficient on its own.
+      if (result.checks.detected && !allChecksPassed) {
+        assert.equal(result.ready, false, "detected but not fully readable, yet reported ready");
+      }
+    }
+  });
+
+  /*
+   * A washed-out webcam frame — the whole card blown to near-white by a
+   * window or overhead light behind the citizen, not a small specular
+   * highlight. Distinct from the existing "glare" test, which uses a
+   * localised hotspot on an otherwise normal card; this is the frame
+   * genuinely losing the print across most of its surface.
+   */
+  it("rejects a whole-frame overexposed webcam capture, not just a local hotspot", () => {
+    const data = makeCanvas(WIDTH, HEIGHT, [235, 235, 235]);
+    // Near-white across almost the entire card — text has been blown out.
+    paintTexturedRect(data, WIDTH, { x: 40, y: 22, w: 120, h: 82 }, [252, 252, 252], 4);
+    const result = analyzeCnicFrame(buffer(data));
+
+    assert.equal(result.ready, false);
+    // The specific reason a near-white frame gets rejected can legitimately
+    // be sharpness, glare or readability depending on exactly how the clipping
+    // lands — an overexposed sensor typically loses contrast-derived sharpness
+    // too. What must hold is that it is a QUALITY complaint, never a framing
+    // one: the card genuinely is there and in frame, that is not the problem.
+    assert.ok(
+      ["blurry", "glare", "unreadable", "low_light"].includes(result.issue ?? ""),
+      `expected a quality-shaped rejection, got ${result.issue}`,
+    );
+  });
+
+  /*
+   * A cheap/built-in laptop webcam at native resolution: soft everywhere from
+   * poor autofocus rather than motion blur, low overall contrast, analysed at
+   * a smaller pixel count than a phone camera would give. This is the
+   * concrete "laptop camera" scenario the capture gate has to hold up
+   * against, not just a phone held steady.
+   */
+  it("rejects a low-resolution, poor-autofocus laptop webcam frame", () => {
+    const width = 96;
+    const height = 60;
+    const data = makeCanvas(width, height, [225, 225, 225]);
+
+    for (let y = 10; y < 50; y++) {
+      for (let x = 18; x < 78; x++) {
+        // Very low amplitude and low frequency: a genuinely out-of-focus lens,
+        // not merely a lower-resolution but still-sharp image.
+        const variation = 6 * Math.sin(x * 0.25) * Math.cos(y * 0.2);
+        const i = (y * width + x) * 4;
+        const value = 100 + variation;
+        data[i] = value;
+        data[i + 1] = value + 30;
+        data[i + 2] = value + 15;
+      }
+    }
+
+    const result = analyzeCnicFrame({ data, width, height });
+    assert.equal(result.ready, false);
+  });
+
   it("reports every check independently, not just the one that won", () => {
     const data = makeCanvas(WIDTH, HEIGHT, [230, 230, 230]);
     // Small and dim: distance fails, lighting fails, both must be visible.
@@ -314,5 +414,125 @@ describe("analyzeCnicFrame", () => {
     // because there's no point telling someone about lighting on a card
     // that isn't positioned yet.
     assert.equal(result.issue, "too_far");
+  });
+});
+
+/*
+ * The readability score and the three-tier border colour.
+ *
+ * The property that matters most here is that the number and the colour can
+ * never disagree — a citizen must never read "87%" beside a red frame, or
+ * "42%" beside a green one. That is a structural guarantee of how the score is
+ * built, so it is tested as one.
+ */
+describe("readability score and tier", () => {
+  it("scores a well-framed card in the acceptable band and calls it green", () => {
+    const result = analyzeCnicFrame(buffer(wellFramedCard()));
+
+    assert.equal(result.tier, "acceptable");
+    assert.ok(result.readability >= READABLE_THRESHOLD);
+    assert.ok(result.readability <= 100);
+  });
+
+  it("keeps score and tier in agreement across every synthetic scene", () => {
+    const scenes: Record<string, Uint8ClampedArray> = {};
+
+    scenes.empty = makeCanvas(WIDTH, HEIGHT, [230, 230, 230]);
+
+    scenes.tooFar = makeCanvas(WIDTH, HEIGHT, [230, 230, 230]);
+    paintTexturedRect(scenes.tooFar, WIDTH, { x: 65, y: 40, w: 70, h: 45 }, [90, 130, 110]);
+
+    scenes.tooClose = makeCanvas(WIDTH, HEIGHT, [230, 230, 230]);
+    paintTexturedRect(
+      scenes.tooClose,
+      WIDTH,
+      { x: 2, y: 2, w: WIDTH - 4, h: HEIGHT - 4 },
+      [90, 130, 110],
+    );
+
+    scenes.dim = makeCanvas(WIDTH, HEIGHT, [5, 5, 5]);
+    paintTexturedRect(scenes.dim, WIDTH, { x: 40, y: 22, w: 120, h: 82 }, [55, 55, 55], 30);
+
+    scenes.glare = wellFramedCard();
+    paintGlarePatch(scenes.glare, WIDTH, { x: 70, y: 30, w: 90, h: 60 });
+
+    scenes.good = wellFramedCard();
+
+    for (const [name, data] of Object.entries(scenes)) {
+      const { readability, tier, ready } = analyzeCnicFrame(buffer(data));
+
+      const expected =
+        readability >= READABLE_THRESHOLD
+          ? "acceptable"
+          : readability >= IMPROVING_THRESHOLD
+            ? "improving"
+            : "poor";
+
+      assert.equal(tier, expected, `${name}: tier disagrees with score`);
+      // Green and "ready to capture" are the same statement, always.
+      assert.equal(tier === "acceptable", ready, `${name}: tier disagrees with ready`);
+    }
+  });
+
+  it("never reports orange for an empty frame — nothing is nearly-good about no card", () => {
+    const result = analyzeCnicFrame(buffer(makeCanvas(WIDTH, HEIGHT, [230, 230, 230])));
+
+    assert.equal(result.tier, "poor");
+    assert.ok(result.readability < IMPROVING_THRESHOLD);
+  });
+
+  /*
+   * Spec §4: a card that is absent, too far, too close or half out of shot is
+   * red, not orange, however clean the rest of the photo is. Orange is reserved
+   * for a well-placed card whose *quality* needs work.
+   */
+  it("keeps framing failures red and quality failures orange", () => {
+    const tooFar = makeCanvas(WIDTH, HEIGHT, [230, 230, 230]);
+    paintTexturedRect(tooFar, WIDTH, { x: 65, y: 40, w: 70, h: 45 }, [90, 130, 110]);
+    assert.equal(analyzeCnicFrame(buffer(tooFar)).tier, "poor");
+
+    const cutOff = makeCanvas(WIDTH, HEIGHT, [230, 230, 230]);
+    paintTexturedRect(cutOff, WIDTH, { x: 0, y: 0, w: 140, h: 88 }, [90, 130, 110]);
+    assert.equal(analyzeCnicFrame(buffer(cutOff)).tier, "poor");
+
+    // Well placed, but with a glare hotspot big enough to swallow a field.
+    const glared = wellFramedCard();
+    paintGlarePatch(glared, WIDTH, { x: 70, y: 30, w: 90, h: 60 });
+    const glareResult = analyzeCnicFrame(buffer(glared));
+    assert.equal(glareResult.issue, "glare");
+    assert.equal(glareResult.tier, "improving");
+  });
+
+  /*
+   * The gauge's green band is drawn at fixed coordinates in the UI, so the
+   * mapping has to guarantee those coordinates mean what they say.
+   */
+  it("puts an acceptable card inside the gauge's marked band, and a bad one outside", () => {
+    const good = analyzeCnicFrame(buffer(wellFramedCard()));
+    assert.ok(good.distance >= DISTANCE_BAND_MIN && good.distance <= DISTANCE_BAND_MAX);
+
+    const far = makeCanvas(WIDTH, HEIGHT, [230, 230, 230]);
+    paintTexturedRect(far, WIDTH, { x: 65, y: 40, w: 70, h: 45 }, [90, 130, 110]);
+    assert.ok(analyzeCnicFrame(buffer(far)).distance < DISTANCE_BAND_MIN);
+
+    const close = makeCanvas(WIDTH, HEIGHT, [230, 230, 230]);
+    paintTexturedRect(close, WIDTH, { x: 2, y: 2, w: WIDTH - 4, h: HEIGHT - 4 }, [90, 130, 110]);
+    assert.ok(analyzeCnicFrame(buffer(close)).distance > DISTANCE_BAND_MAX);
+  });
+
+  it("moves the score upward as a frame genuinely improves", () => {
+    // The same card, photographed with progressively more printed contrast.
+    const scores = [4, 12, 30, 60].map((amplitude) => {
+      const data = makeCanvas(WIDTH, HEIGHT, [235, 235, 235]);
+      paintTexturedRect(data, WIDTH, { x: 40, y: 22, w: 120, h: 82 }, [90, 130, 110], amplitude);
+      return analyzeCnicFrame(buffer(data)).readability;
+    });
+
+    for (let i = 1; i < scores.length; i++) {
+      assert.ok(
+        scores[i] >= scores[i - 1],
+        `score fell from ${scores[i - 1]} to ${scores[i]} as the frame improved`,
+      );
+    }
   });
 });

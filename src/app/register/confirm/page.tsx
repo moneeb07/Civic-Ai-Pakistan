@@ -36,6 +36,13 @@ export default async function ConfirmPage() {
     district: data.district ?? null,
     sector: data.sector ?? null,
     residentialAddress: data.residentialAddress ?? null,
+    /*
+     * What the citizen confirmed on the Address step. Falls back to the line
+     * printed on the card only when they left the box untouched, so the final
+     * review always shows the value that will actually be saved.
+     */
+    permanentAddress:
+      data.permanentAddress ?? data.cnicPermanentAddress?.raw ?? null,
     hasProfileImage: Boolean(data.profileImage),
     profileImage: data.profileImage ?? null,
   };

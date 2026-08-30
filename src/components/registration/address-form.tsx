@@ -12,87 +12,105 @@ import { FormField } from "@/components/auth/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getDictionary } from "@/lib/i18n";
+import {
+  buildAddressPrefill,
+  type AddressFormState,
+} from "@/lib/registration/address-prefill";
 import type { CnicAddressData } from "@/lib/registration/schema";
 
 const t = getDictionary();
 
-interface AddressState {
-  houseNumber: string;
-  city: string;
-  district: string;
-  sector: string;
-  street: string;
-  road: string;
-  residentialAddress: string;
-}
-
-const EMPTY: AddressState = {
-  houseNumber: "",
-  city: "",
-  district: "",
-  sector: "",
-  street: "",
-  road: "",
-  residentialAddress: "",
-};
-
 /*
- * Address is always typed OR CONFIRMED by the citizen — never written silently.
+ * Both addresses, pre-filled from the card.
  *
- * If the CNIC's back was scanned and carried a Present or Permanent Address,
- * those are offered as one-tap prefills here (see the CnicAddressPrompt below).
- * Nothing is copied in until the citizen taps one, and every field stays
- * editable afterwards — a printed Urdu address rarely splits into house/
- * street/sector/district as cleanly as a form does, so this is a starting
- * point to correct, not a fact to trust blindly.
+ * The Present Address read off the CNIC's back fills the current-address
+ * fields; the Permanent Address fills its own separate box. Neither is merged
+ * into the other and neither is silently trusted: every field stays editable,
+ * the ones that came from the card are badged, and the citizen is asked to
+ * check them — a printed Urdu address rarely splits into house/street/sector/
+ * district as cleanly as a form does, so this is a starting point to correct,
+ * not a fact to accept.
+ *
+ * Previously these were "tap to use" suggestions over an empty form, which
+ * meant a perfectly-read address looked to the citizen like no address had
+ * been extracted at all.
  */
 export function AddressForm({
   initial,
   cnicPresentAddress,
   cnicPermanentAddress,
 }: {
-  initial?: Partial<AddressState>;
+  initial?: Partial<AddressFormState>;
   cnicPresentAddress?: CnicAddressData | null;
   cnicPermanentAddress?: CnicAddressData | null;
 }) {
   const router = useRouter();
   const { reportStruggle } = useAssistedMode();
 
-  const [values, setValues] = React.useState<AddressState>({
-    ...EMPTY,
-    ...initial,
-  });
+  /*
+   * Computed once, on mount. The prefill depends only on server-rendered
+   * props, and recomputing it would fight the citizen's own edits.
+   */
+  const [prefill] = React.useState(() =>
+    buildAddressPrefill(initial, cnicPresentAddress, cnicPermanentAddress),
+  );
+
+  const [values, setValues] = React.useState<AddressFormState>(prefill.values);
   const [source, setSource] = React.useState<"present" | "permanent" | null>(null);
+  /** Cleared per field as soon as the citizen edits it — then it is theirs. */
+  const [cnicFilled, setCnicFilled] = React.useState(prefill.fromCnic);
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
 
   const hasCnicAddress = Boolean(cnicPresentAddress ?? cnicPermanentAddress);
 
-  function update<K extends keyof AddressState>(key: K, value: string) {
+  function update<K extends keyof AddressFormState>(key: K, value: string) {
     setValues((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key]: "" }));
-    // Once the citizen edits anything, this is their address, not the card's.
-    setSource(null);
+
+    // Once the citizen edits a field, that address is theirs, not the card's.
+    if (key === "permanentAddress") {
+      setCnicFilled((current) => ({ ...current, permanent: false }));
+    } else {
+      setCnicFilled((current) => ({ ...current, current: false }));
+      setSource(null);
+    }
   }
 
+  /** Re-applies one of the card's blocks over the current-address fields. */
   function applyFromCnic(which: "present" | "permanent") {
     const data = which === "present" ? cnicPresentAddress : cnicPermanentAddress;
     if (!data) return;
 
-    setValues({
+    setValues((current) => ({
+      ...current,
       houseNumber: data.houseNumber ?? "",
       city: data.city ?? "",
       district: data.district ?? "",
       sector: data.sector ?? "",
       street: data.streetOrMohalla ?? "",
       // "road" is never split out by the model — the raw text goes into the
-      // free-text residential address instead, where nothing is lost.
+      // free-text current address instead, where nothing is lost.
       road: "",
       residentialAddress: data.raw ?? "",
-    });
+      // The permanent box is deliberately untouched: this control chooses
+      // which address the citizen LIVES at, and must never overwrite the
+      // separate permanent record (spec §13 — do not merge the two).
+    }));
     setSource(which);
+    setCnicFilled((current) => ({ ...current, current: true }));
     setErrors({});
+  }
+
+  /** For the very common case of never having moved. */
+  function copyCurrentToPermanent() {
+    setValues((current) => ({
+      ...current,
+      permanentAddress: current.residentialAddress,
+    }));
+    setCnicFilled((current) => ({ ...current, permanent: false }));
+    setErrors((current) => ({ ...current, permanentAddress: "" }));
   }
 
   async function onSubmit(event: React.FormEvent) {
@@ -160,7 +178,7 @@ export function AddressForm({
       <form onSubmit={onSubmit} noValidate className="space-y-5">
         {formError ? <FormAlert message={formError} /> : null}
 
-        {source ? (
+        {cnicFilled.current || source ? (
           <p className="inline-flex items-center gap-1.5 rounded-full bg-civic-100 px-2.5 py-1 text-[0.75rem] font-semibold text-civic-700">
             <ScanLine className="size-3" aria-hidden="true" />
             {t.address.fromCnicSource}
@@ -254,6 +272,12 @@ export function AddressForm({
           {(field) => (
             <Input
               {...field}
+              /*
+               * dir="auto" lets the browser pick direction from the text
+               * itself, so an Urdu address renders right-to-left and an
+               * English one left-to-right, in the same box. Forcing either
+               * direction would mangle one of the two.
+               */
               dir="auto"
               autoComplete="street-address"
               placeholder={t.address.residentialPlaceholder}
@@ -263,6 +287,46 @@ export function AddressForm({
             />
           )}
         </FormField>
+
+        {/*
+          Permanent address: its own field, never merged with the current one.
+          Pre-filled from the CNIC's Permanent Address block when the back was
+          read, in the script it was printed in.
+        */}
+        <div className="space-y-2">
+          <FormField
+            label={`${t.address.permanentAddress} (${t.address.optional})`}
+            error={errors.permanentAddress}
+          >
+            {(field) => (
+              <Input
+                {...field}
+                dir="auto"
+                placeholder={t.address.permanentPlaceholder}
+                value={values.permanentAddress}
+                onChange={(event) => update("permanentAddress", event.target.value)}
+                invalid={Boolean(errors.permanentAddress)}
+              />
+            )}
+          </FormField>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {cnicFilled.permanent ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-civic-100 px-2.5 py-1 text-[0.75rem] font-semibold text-civic-700">
+                <ScanLine className="size-3" aria-hidden="true" />
+                {t.address.fromCnicSource}
+              </span>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={copyCurrentToPermanent}
+              className="rounded-full border border-line-strong px-3 py-1 text-[0.75rem] font-medium text-civic-700 transition-colors hover:border-civic-200 hover:bg-civic-50"
+            >
+              {t.address.sameAsCurrent}
+            </button>
+          </div>
+        </div>
 
         <Button type="submit" size="full" loading={submitting} className="mt-2">
           {submitting ? t.registration.saving : t.registration.continue}

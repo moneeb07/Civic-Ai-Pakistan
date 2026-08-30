@@ -105,6 +105,9 @@ export async function POST(request: Request) {
           street: parsed.data.street || null,
           road: parsed.data.road || null,
           residentialAddress: parsed.data.residentialAddress,
+          // Kept as its own column all the way through — never folded into
+          // the current address (spec §12).
+          permanentAddress: parsed.data.permanentAddress || null,
         },
         "photo",
       );

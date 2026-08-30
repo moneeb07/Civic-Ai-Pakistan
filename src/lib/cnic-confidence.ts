@@ -49,6 +49,9 @@ export interface AddressBlockConfidence {
 
 export interface ConfidenceGateInput {
   readable: boolean;
+  /** Per-side image quality, straight from the model. Null = that side was not submitted. */
+  frontReadable: boolean | null;
+  backReadable: boolean | null;
   confidence: number;
   /** Per-field confidence, keyed by field name. A missing entry is treated as unconfident. */
   fieldConfidence: Partial<Record<string, number>>;
@@ -59,9 +62,19 @@ export interface ConfidenceGateInput {
   addressBlocks: AddressBlockConfidence[];
 }
 
+/**
+ * Which physical side of the card a failure points at, so the citizen is only
+ * ever asked to retake the side that actually needs it (spec: independent
+ * front/back retry). "both" covers a genuinely ambiguous read — the honest
+ * answer when the signal does not distinguish the two — never a guess.
+ */
+export type AffectedSide = "front" | "back" | "both";
+
 export interface ConfidenceGateResult {
   pass: boolean;
   failure: GateFailure | null;
+  /** Which side to send the citizen back to. Null when the read passed. */
+  affectedSide: AffectedSide | null;
   /** Fields that cleared the bar and may be shown. */
   acceptedFields: string[];
   /** Fields the model returned but was not confident enough about — never shown, never saved. */
@@ -72,6 +85,28 @@ export interface ConfidenceGateResult {
 
 function isConfident(confidence: number | undefined): boolean {
   return typeof confidence === "number" && confidence >= FIELD_CONFIDENCE_MIN;
+}
+
+/**
+ * Turns the model's per-side signal into a retry target.
+ *
+ * Deliberately conservative: a side is only pointed at when it is explicitly
+ * reported bad. If the model says nothing (both null — an older response
+ * shape, or genuine uncertainty) this returns "both" rather than guessing,
+ * which is exactly the previous behaviour before per-side reporting existed —
+ * so a citizen is never sent to retake a side that was never actually
+ * implicated.
+ */
+function sideFromReadability(
+  frontReadable: boolean | null,
+  backReadable: boolean | null,
+): AffectedSide {
+  const frontBad = frontReadable === false;
+  const backBad = backReadable === false;
+
+  if (frontBad && !backBad) return "front";
+  if (backBad && !frontBad) return "back";
+  return "both";
 }
 
 /**
@@ -109,19 +144,25 @@ export function evaluateExtractionConfidence(
     addressWithheld: withheldAddressBlocks.length > 0,
   };
 
-  const fail = (failure: GateFailure): ConfidenceGateResult => ({
+  const fail = (failure: GateFailure, affectedSide: AffectedSide): ConfidenceGateResult => ({
     ...base,
     pass: false,
     failure,
+    affectedSide,
   });
 
-  if (!input.readable) return fail("unreadable");
-  if (input.confidence < OVERALL_CONFIDENCE_MIN) return fail("low_confidence");
+  if (!input.readable) {
+    return fail("unreadable", sideFromReadability(input.frontReadable, input.backReadable));
+  }
+  if (input.confidence < OVERALL_CONFIDENCE_MIN) {
+    return fail("low_confidence", sideFromReadability(input.frontReadable, input.backReadable));
+  }
 
   const criticalMissing = CRITICAL_FIELDS.some(
     (field) => !acceptedFields.includes(field),
   );
-  if (criticalMissing) return fail("critical_field_unclear");
+  // Name and CNIC number are only ever printed on the front.
+  if (criticalMissing) return fail("critical_field_unclear", "front");
 
   /*
    * The citizen went to the trouble of photographing the back, and the model
@@ -132,7 +173,8 @@ export function evaluateExtractionConfidence(
    * A back that carries no address at all is a different thing entirely and
    * passes: there is nothing uncertain about a field the card doesn't print.
    */
-  if (input.backScanned && base.addressWithheld) return fail("address_unclear");
+  // The address is only ever printed on the back.
+  if (input.backScanned && base.addressWithheld) return fail("address_unclear", "back");
 
-  return { ...base, pass: true, failure: null };
+  return { ...base, pass: true, failure: null, affectedSide: null };
 }

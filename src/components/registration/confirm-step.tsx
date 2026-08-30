@@ -29,6 +29,7 @@ export interface ConfirmSummary {
   district: string | null;
   sector: string | null;
   residentialAddress: string | null;
+  permanentAddress: string | null;
   hasProfileImage: boolean;
   profileImage: string | null;
 }
@@ -130,6 +131,7 @@ export function ConfirmStep({ summary }: { summary: ConfirmSummary }) {
             { label: t.address.district, value: summary.district },
             { label: t.address.sector, value: summary.sector },
             { label: t.profile.address, value: summary.residentialAddress },
+            { label: t.address.permanentAddress, value: summary.permanentAddress },
           ]}
         />
 

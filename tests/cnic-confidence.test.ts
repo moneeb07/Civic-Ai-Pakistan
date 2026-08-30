@@ -16,6 +16,8 @@ import {
 function goodRead(overrides: Partial<ConfidenceGateInput> = {}): ConfidenceGateInput {
   return {
     readable: true,
+    frontReadable: true,
+    backReadable: true,
     confidence: 0.94,
     fieldConfidence: {
       fullName: 0.96,
@@ -65,6 +67,12 @@ describe("evaluateExtractionConfidence", () => {
     assert.equal(result.failure, "unreadable");
   });
 
+  it("passes affectedSide=null on a passing read", () => {
+    const result = evaluateExtractionConfidence(goodRead());
+    assert.equal(result.pass, true);
+    assert.equal(result.affectedSide, null);
+  });
+
   it("fails when overall confidence is under the bar, even with confident fields", () => {
     const result = evaluateExtractionConfidence(goodRead({ confidence: 0.6 }));
 
@@ -91,6 +99,32 @@ describe("evaluateExtractionConfidence", () => {
 
     assert.equal(result.pass, false);
     assert.equal(result.failure, "critical_field_unclear");
+  });
+
+  /*
+   * Spec: front and back are validated independently. Name and CNIC number
+   * are only ever printed on the front, so a critical-field failure must
+   * always point there — never send a citizen to retake a back that was fine.
+   */
+  it("points a critical-field failure at the front, specifically", () => {
+    const input = goodRead();
+    input.fieldConfidence.cnicNumber = 0.4;
+    const result = evaluateExtractionConfidence(input);
+
+    assert.equal(result.affectedSide, "front");
+  });
+
+  it("points an unreadable-address failure at the back, specifically", () => {
+    const result = evaluateExtractionConfidence(
+      goodRead({
+        backScanned: true,
+        addressBlocks: [{ hasContent: true, confidence: 0.3 }],
+      }),
+    );
+
+    assert.equal(result.pass, false);
+    assert.equal(result.failure, "address_unclear");
+    assert.equal(result.affectedSide, "back");
   });
 
   it("drops a single unconfident non-critical field but still passes", () => {
@@ -175,5 +209,52 @@ describe("evaluateExtractionConfidence", () => {
     // "I couldn't read the card" is the useful thing to say; the low scores
     // that follow from it are not separate problems to report.
     assert.equal(result.failure, "unreadable");
+  });
+});
+
+/*
+ * Regression coverage for per-side readability -> affectedSide, the signal
+ * that makes independent front/back retry precise instead of a guess. Spec
+ * scenarios:
+ *
+ *   FRONT good, BACK bad  -> affectedSide "back"
+ *   FRONT bad, BACK good  -> affectedSide "front"
+ *   Model gives no signal -> affectedSide "both" (never guessed)
+ */
+describe("evaluateExtractionConfidence — affectedSide from per-side readability", () => {
+  it('reports "front" when only the front was flagged unreadable', () => {
+    const result = evaluateExtractionConfidence(
+      goodRead({ readable: false, frontReadable: false, backReadable: true }),
+    );
+    assert.equal(result.affectedSide, "front");
+  });
+
+  it('reports "back" when only the back was flagged unreadable', () => {
+    const result = evaluateExtractionConfidence(
+      goodRead({ readable: false, frontReadable: true, backReadable: false }),
+    );
+    assert.equal(result.affectedSide, "back");
+  });
+
+  it('reports "both" when neither side is specifically implicated', () => {
+    const result = evaluateExtractionConfidence(
+      goodRead({ readable: false, frontReadable: false, backReadable: false }),
+    );
+    assert.equal(result.affectedSide, "both");
+  });
+
+  it('reports "both" — never a guess — when the model gives no per-side signal at all', () => {
+    const result = evaluateExtractionConfidence(
+      goodRead({ readable: false, frontReadable: null, backReadable: null }),
+    );
+    assert.equal(result.affectedSide, "both");
+  });
+
+  it("does not let a good back mask a bad front on the low_confidence path too", () => {
+    const result = evaluateExtractionConfidence(
+      goodRead({ confidence: 0.5, frontReadable: false, backReadable: true }),
+    );
+    assert.equal(result.failure, "low_confidence");
+    assert.equal(result.affectedSide, "front");
   });
 });

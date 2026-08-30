@@ -170,7 +170,13 @@ export async function POST(request: Request) {
       residentialAddress: data.residentialAddress ?? null,
       // The permanent address is a record of what the CNIC prints, not
       // something the citizen filled in — kept as-is, never edited here.
-      permanentAddress: data.cnicPermanentAddress?.raw ?? null,
+      /*
+       * The citizen's confirmed permanent address wins over the card's. The
+       * printed line is only the fallback for someone who left the field as
+       * we pre-filled it — in which case the two are the same string anyway.
+       */
+      permanentAddress:
+        data.permanentAddress?.trim() || data.cnicPermanentAddress?.raw || null,
       profileImagePath,
       preferredLanguage: data.preferredLanguage ?? "en",
       assistedMode: data.assistedMode ?? false,

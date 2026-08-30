@@ -50,10 +50,44 @@ export interface FrameChecks {
   readability: boolean;
 }
 
+/**
+ * The three bands the guide's border colour is drawn from.
+ *
+ *   poor       red    — nothing usable yet, or a plain framing failure
+ *   improving  orange — a card is there and being read, but not yet good enough
+ *   acceptable green  — readable enough to capture
+ *
+ * Deliberately three, not two: the old red/green split told a citizen holding
+ * a nearly-good card exactly the same thing as one pointing at the ceiling.
+ */
+export type FrameTier = "poor" | "improving" | "acceptable";
+
 export interface FrameQualityResult {
   ready: boolean;
   /** The single most important problem to show — never more than one at a time. */
   issue: FrameIssue | null;
+  /**
+   * Estimated readability, 0–100.
+   *
+   * This is a presentation of the same measurements the checks above use, not
+   * a second opinion: by construction it is >= READABLE_THRESHOLD if and only
+   * if every check passes, so the number on screen can never contradict the
+   * colour of the border beside it.
+   *
+   * It says nothing about whether the extracted VALUES will be right — that is
+   * lib/cnic-confidence.ts's job, after Gemini has actually read the card. This
+   * is "how good is this photo", and must only ever be labelled that way.
+   */
+  readability: number;
+  tier: FrameTier;
+  /**
+   * Where the card sits on the far/close gauge, 0 (far) to 1 (close).
+   *
+   * Mapped so that the acceptable distance band is always exactly
+   * [DISTANCE_BAND_MIN, DISTANCE_BAND_MAX] on the gauge — the UI draws a fixed
+   * band and cannot drift out of step with the coverage thresholds here.
+   */
+  distance: number;
   checks: FrameChecks;
   /** Raw measurements, exposed for tests and for tuning — not shown to citizens. */
   metrics: {
@@ -414,6 +448,163 @@ function estimateTextDetail(
   return counted > 0 ? strong / counted : 0;
 }
 
+/*
+ * -- Readability score ---------------------------------------------------
+ *
+ * The bands come straight from the product spec: below 61 is poor, 61-84 is
+ * "needs improvement", 85 and over is good enough to capture. The point of
+ * the 85 line is that it is NOT a demand for a perfect photo — a card a person
+ * can plainly read should clear it, and the real protection against a wrong
+ * value is the per-field confidence gate after Gemini reads the card.
+ */
+export const READABLE_THRESHOLD = 85;
+export const IMPROVING_THRESHOLD = 61;
+
+/** The acceptable stretch of the far/close gauge, in gauge coordinates. */
+export const DISTANCE_BAND_MIN = 0.35;
+export const DISTANCE_BAND_MAX = 0.75;
+
+/**
+ * 0 at `fail`, 1 at `pass`, linear between, clamped outside. `fail` may sit
+ * either above or below `pass`, so a metric that gets worse as it grows
+ * (glare) uses the same helper as one that gets better (sharpness).
+ */
+function ramp(value: number, fail: number, pass: number): number {
+  if (fail === pass) return value >= pass ? 1 : 0;
+  const t = (value - fail) / (pass - fail);
+  return Math.min(1, Math.max(0, t));
+}
+
+/*
+ * How much each dimension moves the score. Sharpness, distance and printed
+ * detail carry the most weight because they are what actually decides whether
+ * text can be read; tilt and a modest specular highlight carry the least,
+ * because OCR shrugs both off.
+ */
+const SCORE_WEIGHTS = {
+  distance: 3,
+  complete: 2,
+  tilt: 1,
+  sharpness: 3,
+  lighting: 2,
+  glare: 1,
+  detail: 3,
+} as const;
+
+/**
+ * Per-dimension quality, each 0 (hopeless) to 1 (ideal).
+ *
+ * These are intentionally smooth, unlike the hard pass/fail checks: the score
+ * exists to show a citizen that moving the card is *helping*, which a boolean
+ * cannot express.
+ */
+function subScores(metrics: FrameQualityResult["metrics"]) {
+  const { coverageRatio, edgeTouchCount, tiltDegrees, sharpness, brightness, glareRatio, textDetail } =
+    metrics;
+
+  /*
+   * Inside the acceptable coverage band, distance is ideal — there is no
+   * "more correct" spot within it. Outside, it tapers toward 0, scaled below
+   * 1 so an out-of-band frame can never score as well as an in-band one.
+   */
+  const distance =
+    coverageRatio < TOO_FAR_COVERAGE_MAX
+      ? ramp(coverageRatio, 0, TOO_FAR_COVERAGE_MAX) * 0.8
+      : coverageRatio > TOO_CLOSE_COVERAGE_MIN
+        ? ramp(coverageRatio, 1, TOO_CLOSE_COVERAGE_MIN) * 0.8
+        : 1;
+
+  return {
+    distance,
+    complete: 1 - Math.min(1, edgeTouchCount / 4),
+    tilt:
+      tiltDegrees === null
+        ? 1
+        : 1 - Math.min(1, Math.abs(tiltDegrees) / (TILT_THRESHOLD_DEGREES * 2)),
+    // Each "pass" point is set at ~2.5x its own floor, so merely clearing a
+    // threshold reads as adequate rather than excellent.
+    sharpness: ramp(sharpness, 0, BLUR_SHARPNESS_MIN * 2.5),
+    lighting: ramp(brightness, 0, BRIGHTNESS_LOW_MAX * 2.5),
+    glare: ramp(glareRatio, GLARE_RATIO_MAX * 2, 0),
+    detail: ramp(textDetail, 0, TEXT_DETAIL_MIN * 5),
+  };
+}
+
+/**
+ * Collapses the sub-scores into the single 0-100 number shown on screen.
+ *
+ * The split around READABLE_THRESHOLD is what keeps the number honest: a frame
+ * with every check passing lands in 85-100, one with any check failing lands
+ * in 0-84, and no arithmetic can put a red border next to "87% readable".
+ */
+/*
+ * Framing failures are always red, never orange, however good the rest of the
+ * frame is. Orange means "a readable card, nearly good enough"; a card that is
+ * absent, too far, too close or half out of shot is none of those, and telling
+ * someone their photo is 68% good while the card is off the edge of the screen
+ * invites them to just press the shutter.
+ */
+const FRAMING_ISSUES = new Set<FrameIssue>([
+  "no_card",
+  "too_far",
+  "too_close",
+  "incomplete",
+]);
+
+function readabilityScore(
+  metrics: FrameQualityResult["metrics"],
+  checks: FrameChecks,
+  issue: FrameIssue | null,
+): number {
+  const scores = subScores(metrics);
+
+  let weighted = 0;
+  let total = 0;
+  for (const [key, weight] of Object.entries(SCORE_WEIGHTS)) {
+    weighted += scores[key as keyof typeof scores] * weight;
+    total += weight;
+  }
+  const quality = total > 0 ? weighted / total : 0;
+
+  const allPassed = Object.values(checks).every(Boolean);
+
+  if (allPassed) {
+    return Math.round(READABLE_THRESHOLD + (100 - READABLE_THRESHOLD) * quality);
+  }
+
+  /*
+   * A framing failure is squeezed proportionally into the red band rather than
+   * simply clamped there, so the number still moves as the citizen improves
+   * the shot — the gradient is the whole reason to show a number at all.
+   */
+  const ceiling = FRAMING_ISSUES.has(issue as FrameIssue)
+    ? IMPROVING_THRESHOLD - 1
+    : READABLE_THRESHOLD - 1;
+
+  return Math.round(ceiling * quality);
+}
+
+/**
+ * Coverage expressed as a position on the far/close gauge, pinned so that the
+ * acceptable band always occupies [DISTANCE_BAND_MIN, DISTANCE_BAND_MAX].
+ */
+function distancePosition(coverageRatio: number): number {
+  if (coverageRatio <= TOO_FAR_COVERAGE_MAX) {
+    return ramp(coverageRatio, 0, TOO_FAR_COVERAGE_MAX) * DISTANCE_BAND_MIN;
+  }
+  if (coverageRatio >= TOO_CLOSE_COVERAGE_MIN) {
+    return (
+      DISTANCE_BAND_MAX +
+      ramp(coverageRatio, TOO_CLOSE_COVERAGE_MIN, 1) * (1 - DISTANCE_BAND_MAX)
+    );
+  }
+  return (
+    DISTANCE_BAND_MIN +
+    ramp(coverageRatio, TOO_FAR_COVERAGE_MAX, TOO_CLOSE_COVERAGE_MIN) *
+      (DISTANCE_BAND_MAX - DISTANCE_BAND_MIN)
+  );
+}
+
 /**
  * Analyses one downsampled crop of the on-screen guide frame and returns the
  * single most important issue to show, in priority order — framing problems
@@ -511,5 +702,27 @@ export function analyzeCnicFrame(buffer: RgbaBuffer): FrameQualityResult {
     issue = "unreadable";
   }
 
-  return { ready: issue === null, issue, checks, metrics };
+  const readability = readabilityScore(metrics, checks, issue);
+
+  /*
+   * The tier reads straight off the score, which is exactly why the score is
+   * built the way it is: the border colour and the percentage beside it are
+   * two views of one number and cannot disagree.
+   */
+  const tier: FrameTier =
+    readability >= READABLE_THRESHOLD
+      ? "acceptable"
+      : readability >= IMPROVING_THRESHOLD
+        ? "improving"
+        : "poor";
+
+  return {
+    ready: issue === null,
+    issue,
+    readability,
+    tier,
+    distance: distancePosition(coverageRatio),
+    checks,
+    metrics,
+  };
 }

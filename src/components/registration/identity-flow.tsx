@@ -7,6 +7,7 @@ import {
   Info,
   Keyboard,
   MapPinned,
+  RotateCcw,
   ScanLine,
   ShieldCheck,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getDictionary } from "@/lib/i18n";
 import { formatCnic, isValidCnicFormat, maskCnic } from "@/lib/cnic";
+import { planRetake, shouldOfferManualFallback } from "@/lib/registration/retake";
 import type { CnicAddressData } from "@/lib/registration/schema";
 
 const t = getDictionary();
@@ -60,12 +62,87 @@ const EMPTY: IdentityFields = {
  * back is optional — a citizen missing it, or whose card predates the
  * two-sided layout, is never blocked; they just fill address in by hand later.
  */
+/**
+ * Surfaced only once scanning has genuinely struggled — never on a first
+ * attempt, where it would just be noise ahead of the camera itself. The
+ * plain "Enter manually" link lower on the screen is always present
+ * regardless of this; this is the same door, made impossible to miss once a
+ * citizen has hit the accuracy gate repeatedly in a row.
+ */
+function TroubleScanningBanner({
+  onEnterManually,
+  onDismiss,
+}: {
+  onEnterManually: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3.5"
+    >
+      <div className="flex items-start gap-2.5">
+        <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-700" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[0.875rem] font-semibold text-amber-900">
+            {t.identity.troubleScanningTitle}
+          </p>
+          <p className="mt-1 text-[0.8125rem] leading-relaxed text-amber-900/80">
+            {t.identity.troubleScanningBody}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button onClick={onEnterManually} className="min-h-10 px-4 text-sm">
+              <Keyboard className="size-4" aria-hidden="true" />
+              {t.identity.troubleScanningAction}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={onDismiss}
+              className="min-h-10 px-4 text-sm"
+            >
+              {t.identity.dismissAndKeepTrying}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function IdentityFlow() {
   const router = useRouter();
   const { reportStruggle } = useAssistedMode();
 
   const [phase, setPhase] = React.useState<Phase>("capture-front");
+
+  /*
+   * Both sides are kept for the whole step, not just until they are sent.
+   * That is what makes retaking ONE side possible: re-photographing the front
+   * re-reads it against the back already on file, so an address that came out
+   * perfectly is never thrown away to fix a misread name (spec §26).
+   */
   const frontBlobRef = React.useRef<Blob | null>(null);
+  const backBlobRef = React.useRef<Blob | null>(null);
+  /** Set while the citizen is replacing exactly one side. */
+  const [retakeTarget, setRetakeTarget] = React.useState<"front" | "back" | null>(null);
+
+  /*
+   * How many times the accuracy gate has rejected a scan in a row, so a
+   * citizen whose OCR genuinely keeps failing is offered manual entry
+   * PROMINENTLY rather than being left to notice the quiet "Enter manually"
+   * link on their own. This is local to the identity step and separate from
+   * AssistedModeProvider's own struggle counter, which drives a different
+   * thing (offering voice guidance) and is shared across the whole app —
+   * conflating the two would surface the wrong help for the wrong problem.
+   * Reset to 0 the moment a scan succeeds, so a single rough patch is never
+   * held against a citizen who then reads cleanly.
+   */
+  const [scanFailureCount, setScanFailureCount] = React.useState(0);
+  const [troubleBannerDismissed, setTroubleBannerDismissed] = React.useState(false);
+  const showTroubleBanner = shouldOfferManualFallback(
+    scanFailureCount,
+    troubleBannerDismissed,
+  );
 
   const [fields, setFields] = React.useState<IdentityFields>(EMPTY);
   const [extracted, setExtracted] = React.useState<string[]>([]);
@@ -129,17 +206,42 @@ export function IdentityFlow() {
          * the gate exists to keep out.
          */
         if (payload.reason === "low_confidence") {
-          frontBlobRef.current = null;
+          // A fresh failure always has a chance to re-show the banner, even
+          // if a citizen dismissed it once and then hit another rough patch.
+          setScanFailureCount((count) => count + 1);
+          setTroubleBannerDismissed(false);
           setFields(EMPTY);
           setExtracted([]);
           setWithheld([]);
           setPresentAddress(null);
           setPermanentAddress(null);
+
+          /*
+           * Only the side that actually failed is retaken (spec §25). The rule
+           * lives in lib/registration/retake.ts so it can be tested directly
+           * rather than only through a camera.
+           */
+          const plan = planRetake(payload.affectedSide, {
+            front: Boolean(frontBlobRef.current),
+            back: Boolean(backBlobRef.current),
+          });
+
+          // Drop only the photo being replaced; the kept side stays on file.
+          if (plan.retake === "front") frontBlobRef.current = null;
+          else backBlobRef.current = null;
+
+          setRetakeTarget(plan.keeps ? plan.retake : null);
+          setPhase(plan.retake === "front" ? "capture-front" : "capture-back");
+          return;
         }
 
         setPhase(payload.reason === "not_configured" ? "manual" : "capture-front");
         return;
       }
+
+      // A read that actually passed the gate resets the counter — one rough
+      // patch is never held against a citizen who then reads cleanly.
+      setScanFailureCount(0);
 
       const data = payload.data;
 
@@ -168,6 +270,24 @@ export function IdentityFlow() {
 
   function handleFrontCaptured(image: { blob: Blob }) {
     frontBlobRef.current = image.blob;
+
+    /*
+     * Replacing just the front: straight back to reading, against the back
+     * already on file. No reason to photograph it twice.
+     *
+     * Only when a back actually IS on file, though. Without that guard a
+     * front-retake by someone who had skipped the back ran a front-only
+     * extraction — which cannot carry an address — and never offered the back
+     * camera at all, so the address silently stopped appearing with no
+     * explanation and no way to ask for it again.
+     */
+    if (retakeTarget === "front" && backBlobRef.current) {
+      setRetakeTarget(null);
+      void runExtraction(image.blob, backBlobRef.current);
+      return;
+    }
+
+    setRetakeTarget(null);
     setPhase("capture-back");
   }
 
@@ -176,6 +296,9 @@ export function IdentityFlow() {
       setPhase("capture-front");
       return;
     }
+
+    backBlobRef.current = image.blob;
+    setRetakeTarget(null);
     void runExtraction(frontBlobRef.current, image.blob);
   }
 
@@ -184,7 +307,19 @@ export function IdentityFlow() {
       setPhase("capture-front");
       return;
     }
+
+    backBlobRef.current = null;
+    setRetakeTarget(null);
     void runExtraction(frontBlobRef.current, null);
+  }
+
+  /** Sends the citizen back to one camera, keeping the other side's photo. */
+  function retakeSide(side: "front" | "back") {
+    setError(null);
+    setRetakeTarget(side);
+    if (side === "front") frontBlobRef.current = null;
+    else backBlobRef.current = null;
+    setPhase(side === "front" ? "capture-front" : "capture-back");
   }
 
   async function submit() {
@@ -441,11 +576,61 @@ export function IdentityFlow() {
             {submitting ? t.registration.saving : t.extraction.confirm}
           </Button>
 
+          {/*
+            Retaking one side is offered before the full restart, and is the
+            option that should almost always be taken: a citizen who spots one
+            wrong field has no reason to re-photograph the side that read
+            correctly (spec §26).
+          */}
+          {isReview ? (
+            <>
+              <div className="flex flex-col gap-2.5 sm:flex-row">
+                <Button
+                  variant="secondary"
+                  size="full"
+                  onClick={() => retakeSide("front")}
+                  disabled={submitting}
+                >
+                  <RotateCcw className="size-4" aria-hidden="true" />
+                  {t.extraction.retakeFront}
+                </Button>
+
+                {/*
+                  Always offered, not only when a back was scanned. Someone who
+                  skipped the back — or whose back read carried no address —
+                  otherwise had no route to the back camera except restarting
+                  the entire scan.
+                */}
+                <Button
+                  variant="secondary"
+                  size="full"
+                  onClick={() => retakeSide("back")}
+                  disabled={submitting}
+                >
+                  {backScanned ? (
+                    <RotateCcw className="size-4" aria-hidden="true" />
+                  ) : (
+                    <MapPinned className="size-4" aria-hidden="true" />
+                  )}
+                  {backScanned
+                    ? t.extraction.retakeBack
+                    : t.extraction.scanBackForAddress}
+                </Button>
+              </div>
+
+              <p className="text-center text-[0.75rem] leading-relaxed text-muted">
+                {t.extraction.retakeKeepsOther}
+              </p>
+            </>
+          ) : null}
+
           <Button
             variant="ghost"
             size="full"
             onClick={() => {
               frontBlobRef.current = null;
+              backBlobRef.current = null;
+              setRetakeTarget(null);
               setError(null);
               setWithheld([]);
               setPresentAddress(null);
@@ -468,10 +653,30 @@ export function IdentityFlow() {
         <StepHeading title={t.identity.backTitle} subtitle={t.identity.backSubtitle} />
         <VoiceAssistBar phrase={voicePhrase} className="mb-5" />
 
+        {error ? <div className="mb-5"><FormAlert message={error} /></div> : null}
+
         <div className="mb-5 flex items-center gap-2 rounded-full bg-civic-50 px-3 py-1.5 text-[0.8125rem] font-medium text-civic-700 w-fit">
           <ShieldCheck className="size-3.5" aria-hidden="true" />
           {t.identity.frontCaptured}
         </div>
+
+        {retakeTarget === "back" ? (
+          <p className="mb-5 text-[0.8125rem] leading-relaxed text-muted">
+            {t.extraction.retakeKeepsOther}
+          </p>
+        ) : null}
+
+        {showTroubleBanner ? (
+          <div className="mb-5">
+            <TroubleScanningBanner
+              onEnterManually={() => {
+                setPhase("manual");
+                setExtracted([]);
+              }}
+              onDismiss={() => setTroubleBannerDismissed(true)}
+            />
+          </div>
+        ) : null}
 
         <div className="space-y-4">
           <CnicCapture
@@ -480,6 +685,7 @@ export function IdentityFlow() {
             disabled={submitting}
             frameLabel={t.identity.frameLabelBack}
             previewAlt="The back of your CNIC"
+            title={t.identity.autoCapture.scannerTitleBack}
           />
           <CaptureGuidance />
 
@@ -503,8 +709,31 @@ export function IdentityFlow() {
 
       {error ? <div className="mb-5"><FormAlert message={error} /></div> : null}
 
+      {retakeTarget === "front" ? (
+        <p className="mb-5 text-[0.8125rem] leading-relaxed text-muted">
+          {t.extraction.retakeKeepsOther}
+        </p>
+      ) : null}
+
+      {showTroubleBanner ? (
+        <div className="mb-5">
+          <TroubleScanningBanner
+            onEnterManually={() => {
+              setPhase("manual");
+              setExtracted([]);
+            }}
+            onDismiss={() => setTroubleBannerDismissed(true)}
+          />
+        </div>
+      ) : null}
+
       <div className="space-y-4">
-        <CnicCapture key="front" onCaptured={handleFrontCaptured} disabled={submitting} />
+        <CnicCapture
+          key="front"
+          onCaptured={handleFrontCaptured}
+          disabled={submitting}
+          title={t.identity.autoCapture.scannerTitleFront}
+        />
         <CaptureGuidance />
 
         <button

@@ -3,8 +3,9 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { db, schema } from "@/db";
-import { encryptSensitive, hashSensitive } from "@/lib/crypto";
+import { decryptSensitive, encryptSensitive, hashSensitive } from "@/lib/crypto";
 import { formatCnic, maskCnic } from "@/lib/cnic";
+import { carryOverAddresses } from "@/lib/registration/address-carryover";
 import { identitySchema, type CnicAddressData } from "@/lib/registration/schema";
 import {
   getOrCreateRegistrationSession,
@@ -134,6 +135,51 @@ export async function POST(request: Request) {
     (body as { permanentAddress?: unknown } | null)?.permanentAddress,
   );
 
+  const incomingPresent = normaliseAddressPayload(
+    presentAddressResult.success ? presentAddressResult.data : null,
+  );
+  const incomingPermanent = normaliseAddressPayload(
+    permanentAddressResult.success ? permanentAddressResult.data : null,
+  );
+
+  /*
+   * Is this the same card we already read, or a different one?
+   *
+   * The session is merged, not replaced, so writing the address fields
+   * unconditionally means ANY later pass through this step — entering details
+   * manually, or a rescan that only captured the front — silently destroys an
+   * address that was read correctly the first time. That is the "it worked
+   * once and then stopped" bug: the address was extracted every time, and
+   * then overwritten with null on the way in.
+   *
+   * Keeping the stored address is only safe while it belongs to the same
+   * person's card. If the CNIC number has changed, this is a different
+   * document and anything held from the previous one must go, or one card's
+   * address would be attached to another card's identity.
+   */
+  const previous = session.data;
+  const sameCard =
+    Boolean(previous.cnicEncrypted) &&
+    (() => {
+      try {
+        return decryptSensitive(previous.cnicEncrypted!) === canonicalCnic;
+      } catch {
+        // An undecryptable value cannot be shown to match anything.
+        return false;
+      }
+    })();
+
+  /*
+   * A freshly-read address always wins; otherwise the stored one survives for
+   * the same card — spec §25/§26: never discard information that was read
+   * successfully just because a later step had nothing to say about it.
+   */
+  const addresses = carryOverAddresses(
+    { present: incomingPresent, permanent: incomingPermanent },
+    { present: previous.cnicPresentAddress, permanent: previous.cnicPermanentAddress },
+    sameCard,
+  );
+
   await updateRegistrationSession(
     session.id,
     {
@@ -153,12 +199,8 @@ export async function POST(request: Request) {
       )
         ? ((body as { extractedFields: string[] }).extractedFields)
         : [],
-      cnicPresentAddress: normaliseAddressPayload(
-        presentAddressResult.success ? presentAddressResult.data : null,
-      ),
-      cnicPermanentAddress: normaliseAddressPayload(
-        permanentAddressResult.success ? permanentAddressResult.data : null,
-      ),
+      cnicPresentAddress: addresses.present,
+      cnicPermanentAddress: addresses.permanent,
     },
     "contact",
   );

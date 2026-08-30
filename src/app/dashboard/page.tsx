@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import {
+  BarChart3,
+  Building2,
   Camera,
   Droplets,
+  FileText,
   Lightbulb,
   Mic,
   PencilLine,
@@ -15,6 +19,7 @@ import { Card, CardBody, CardEyebrow } from "@/components/ui/card";
 import { getDictionary } from "@/lib/i18n";
 import { getCitizenProfile } from "@/lib/profile";
 import { requireSession } from "@/lib/session";
+import { resolveLanding } from "@/lib/civic/landing";
 
 const t = getDictionary();
 
@@ -37,6 +42,19 @@ function greeting(): string {
  */
 export default async function DashboardPage() {
   const session = await requireSession();
+
+  /*
+   * An authority account has no business on the citizen dashboard. Deciding
+   * here rather than in the sign-in form means it holds however they arrive —
+   * a bookmark, the proxy's redirect, or the sign-in button — instead of only
+   * on the one path that happened to be wired up.
+   *
+   * Someone who is BOTH a citizen and a department member stays here: this is
+   * the account they registered, and they get a link across instead.
+   */
+  const landing = await resolveLanding(session.user.id);
+  if (landing.redirectTo) redirect(landing.redirectTo);
+
   const profile = await getCitizenProfile(session.user.id);
 
   const firstName = (profile?.fullName ?? session.user.name).split(" ")[0];
@@ -114,6 +132,39 @@ export default async function DashboardPage() {
             </ul>
           </CardBody>
         </Card>
+      </section>
+
+      {/*
+        The two things a citizen wants after reporting: what happened to mine,
+        and is this authority any good. Both are real pages, not placeholders.
+      */}
+      {landing.role === "both" ? (
+        <section className="mt-6">
+          <ActionRow
+            icon={Building2}
+            tone="green"
+            title="Authority workspace"
+            description="You also have an authority account. Open your department."
+            href="/authority"
+          />
+        </section>
+      ) : null}
+
+      <section className="mt-6 space-y-3">
+        <ActionRow
+          icon={FileText}
+          tone="blue"
+          title="My reports"
+          description="Track progress on everything you have reported."
+          href="/dashboard/reports"
+        />
+        <ActionRow
+          icon={BarChart3}
+          tone="green"
+          title="Authority performance"
+          description="See how authorities are resolving civic issues."
+          href="/performance"
+        />
       </section>
 
       <section className="mt-4">

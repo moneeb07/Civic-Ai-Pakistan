@@ -132,6 +132,17 @@ export const en = {
     upload: "Upload CNIC",
     manual: "Enter details manually",
     manualHint: "No camera? You can type your CNIC details instead.",
+    /*
+     * Shown only after repeated scan failures — never on the first attempt,
+     * where it would just be noise. The plain "Enter details manually" link
+     * above is always available regardless; this is the same door, made
+     * impossible to miss once scanning has genuinely stopped working.
+     */
+    troubleScanningTitle: "Still having trouble scanning?",
+    troubleScanningBody:
+      "You can enter your CNIC details by hand instead — you won't need to keep retrying the camera.",
+    troubleScanningAction: "Enter details manually",
+    dismissAndKeepTrying: "Keep trying to scan",
     frameLabel: "Place your CNIC inside the frame",
     guidance: {
       heading: "For the best result",
@@ -177,6 +188,34 @@ export const en = {
       statusNotReady: "Not Ready — Fix the highlighted issue",
       statusPerfect: "CNIC looks clear. Hold still…",
       detecting: "Looking for your CNIC…",
+
+      // Full-screen scanner chrome.
+      scannerTitleFront: "CNIC · Front",
+      scannerTitleBack: "CNIC · Back",
+      holdStill: "Hold still",
+
+      // The far/close gauge down the side of the viewfinder.
+      gaugeFar: "TOO FAR",
+      gaugeClose: "TOO CLOSE",
+      gaugeLabel: "Distance from your CNIC",
+
+      /*
+       * Wording for the live score. It is deliberately "Readability" and never
+       * "accuracy": this number describes the photo, not whether the details
+       * read off it are correct. Claiming the latter would be a claim CivicAI
+       * has no way to make until Gemini has actually read the card.
+       */
+      readability: "Readability",
+      readabilityNote: "This measures the photo, not the information on it.",
+      tiers: {
+        poor: "Poor",
+        improving: "Needs improvement",
+        acceptable: "Readable",
+      },
+
+      voiceOn: "Voice guidance on",
+      voiceOff: "Voice guidance off",
+
       issues: {
         no_card: "Please place your CNIC inside the frame.",
         too_far: "CNIC is too far. Move it closer.",
@@ -225,6 +264,19 @@ export const en = {
     edit: "Edit information",
     confirm: "Confirm & Continue",
     retake: "Scan again",
+    /*
+     * Retaking one side keeps the other. A citizen whose address came out
+     * perfectly should never have to re-photograph the front to fix a name.
+     */
+    retakeFront: "Retake front only",
+    retakeBack: "Retake back only",
+    /*
+     * Shown when the read produced no address — usually because the back was
+     * skipped. Without this the only way back to the back camera was to
+     * restart the whole scan, which is why a missing address felt permanent.
+     */
+    scanBackForAddress: "Scan the back to add your address",
+    retakeKeepsOther: "The other side is kept — only the side you retake is read again.",
     empty: "Not found on your CNIC",
     presentAddressFound: "We also found a present address on the back of your CNIC.",
     permanentAddressFound: "We also found a permanent address on the back of your CNIC.",
@@ -277,7 +329,7 @@ export const en = {
     title: "Where do you live?",
     subtitle: "This helps us send your reports to the right local authority.",
     notice:
-      "Please check every field carefully — the layout of a printed address doesn't always split cleanly into boxes.",
+      "We filled these in from the back of your CNIC. Please check every field carefully — the layout of a printed address doesn't always split cleanly into boxes.",
     noticeManual:
       "We couldn't read an address from your CNIC, so please enter it yourself.",
     houseNumber: "House / Makan No.",
@@ -290,8 +342,15 @@ export const en = {
     sectorPlaceholder: "G-11",
     street: "Street / Mohalla",
     road: "Road",
-    residentialAddress: "Residential address",
+    residentialAddress: "Current address",
     residentialPlaceholder: "House number, block, any landmark",
+    /*
+     * Kept as a separate field from the current address, in the script it was
+     * printed in. An Urdu address is never auto-translated (spec §13).
+     */
+    permanentAddress: "Permanent address",
+    permanentPlaceholder: "As printed on the back of your CNIC",
+    sameAsCurrent: "Same as current address",
     optional: "optional",
     usePresent: "Use present address from CNIC",
     usePermanent: "Use permanent address from CNIC",
@@ -541,5 +600,25 @@ export const en = {
     confirm:
       "Main ne aap ki maloomat dikha di hai. Kya aap account banana chahte hain?",
     success: "Aap ka account ban gaya hai. CivicAI mein khush aamdeed.",
+
+    /*
+     * Spoken only on a real change of state, and only while voice guidance is
+     * switched on — never a running commentary. Nothing here contains a value
+     * read off the card: the assistant guides the camera, it does not read a
+     * citizen's CNIC number, name or address out loud.
+     */
+    capture: {
+      searching: "Apna CNIC frame ke andar rakhein.",
+      too_far: "CNIC ko thora qareeb karein.",
+      too_close: "CNIC ko thora door karein.",
+      incomplete: "Poora CNIC frame ke andar rakhein.",
+      tilted: "CNIC ko seedha rakhein.",
+      blurry: "Mobile ko seedha aur sakoon se pakrein.",
+      low_light: "Roshni kam hai. Zyada roshan jagah par jayein.",
+      glare: "Chamak zyada hai. CNIC ka rukh thora badlein.",
+      no_card: "Apna CNIC frame ke andar rakhein.",
+      unreadable: "CNIC saaf nahi parha ja raha. Position aur roshni theek karein.",
+      ready: "CNIC readable hai. Ab tasveer li ja rahi hai.",
+    },
   },
 } as const;

@@ -114,8 +114,18 @@ export const addressSchema = z.object({
   residentialAddress: z
     .string()
     .trim()
-    .min(1, { message: "Please enter your residential address." })
+    .min(1, { message: "Please enter your current address." })
     .max(200),
+  /*
+   * The permanent address, held separately from the current one and never
+   * merged into it (spec §12). Optional because a card may not carry one and
+   * a citizen may not have a different permanent address — but when the back
+   * WAS read, this arrives pre-filled with exactly what was printed.
+   *
+   * Longer than the current-address cap: this holds a whole printed line as
+   * it appears on the card, rather than the decomposed fields above.
+   */
+  permanentAddress: z.string().trim().max(300).optional().or(z.literal("")),
 });
 
 export type AddressValues = z.input<typeof addressSchema>;
@@ -209,6 +219,12 @@ export interface RegistrationData {
   street?: string | null;
   road?: string | null;
   residentialAddress?: string;
+  /**
+   * The permanent address the citizen confirmed. Distinct from
+   * `cnicPermanentAddress` above: that is what the card said, this is what
+   * they agreed to after seeing it, and it is what gets saved to the profile.
+   */
+  permanentAddress?: string | null;
 
   profileImage?: string;
 

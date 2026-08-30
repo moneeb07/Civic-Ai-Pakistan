@@ -153,6 +153,12 @@ export default async function ProfilePage() {
                   day: "numeric",
                   month: "long",
                   year: "numeric",
+                  // Fixed, not the runtime's default: this renders on the
+                  // server and hydrates in the browser, and an unspecified
+                  // timeZone lets the two runtimes disagree near the day
+                  // boundary, which is a real hydration mismatch, not a
+                  // cosmetic one. CivicAI dates are always Pakistan time.
+                  timeZone: "Asia/Karachi",
                 }),
               },
               { label: t.profile.accountStatus, value: t.profile.active },

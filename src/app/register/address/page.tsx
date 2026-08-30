@@ -21,6 +21,7 @@ export default async function AddressPage() {
     street,
     road,
     residentialAddress,
+    permanentAddress,
     cnicPresentAddress,
     cnicPermanentAddress,
   } = registration.data;
@@ -36,6 +37,7 @@ export default async function AddressPage() {
           street: street ?? "",
           road: road ?? "",
           residentialAddress: residentialAddress ?? "",
+          permanentAddress: permanentAddress ?? "",
         }}
         cnicPresentAddress={cnicPresentAddress ?? null}
         cnicPermanentAddress={cnicPermanentAddress ?? null}

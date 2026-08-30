@@ -7,7 +7,12 @@ import { defineConfig } from "drizzle-kit";
  */
 export default defineConfig({
   dialect: "postgresql",
-  schema: "./src/db/schema.ts",
+  /*
+   * Two entry points, not one: Stage 3's authority tables live in their own
+   * file so that branch can be merged without touching the citizen-side
+   * schema. drizzle-kit unions everything it is given here.
+   */
+  schema: ["./src/db/schema.ts", "./src/db/authority/schema.ts"],
   out: "./drizzle",
   dbCredentials: {
     url: process.env.DATABASE_URL ?? "postgres://localhost:5432/civicai",

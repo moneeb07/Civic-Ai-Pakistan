@@ -12,14 +12,14 @@ const t = getDictionary();
 /*
  * Bottom tab bar, from the reference.
  *
- * Only Home and Profile lead anywhere in Phase 1. The other three are shown
- * because hiding them would misrepresent what CivicAI is for — but they are
- * marked as unavailable rather than dead-ending on a broken screen.
+ * Home, Report, My Reports and Profile all lead somewhere real. Map remains
+ * marked unavailable rather than dead-ending on a broken screen — hiding it
+ * would misrepresent what CivicAI is for, and faking it would be worse.
  */
 const TABS = [
   { href: "/dashboard", label: t.dashboard.navHome, icon: Home, ready: true },
   { href: "/report", label: t.dashboard.navReport, icon: PlusCircle, ready: true },
-  { href: "/dashboard/reports", label: t.dashboard.navMyReports, icon: FileText, ready: false },
+  { href: "/dashboard/reports", label: t.dashboard.navMyReports, icon: FileText, ready: true },
   { href: "/dashboard/map", label: t.dashboard.navMap, icon: Map, ready: false },
   { href: "/dashboard/profile", label: t.dashboard.navProfile, icon: UserRound, ready: true },
 ];
