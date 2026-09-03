@@ -59,7 +59,7 @@ export default async function GovDeptPage() {
           }
         />
 
-        <DeptQueue complaints={complaints} members={assignable} hasWorkflow={hasWorkflow} />
+        <DeptQueue complaints={complaints} hasWorkflow={hasWorkflow} />
 
         <section className="mt-8">
           <CardEyebrow className="mb-3 block">{t.gov.dept.teamEyebrow}</CardEyebrow>

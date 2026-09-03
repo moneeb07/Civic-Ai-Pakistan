@@ -233,3 +233,20 @@ export async function findOfficerInDepartment(
 
   return row ?? null;
 }
+
+/** One organization by id — used to name the scope in an invite. Null when it doesn't exist. */
+export async function findOrganization(
+  orgId: string,
+): Promise<{ id: string; name: string; code: string } | null> {
+  const [row] = await db
+    .select({
+      id: govSchema.organization.id,
+      name: govSchema.organization.name,
+      code: govSchema.organization.code,
+    })
+    .from(govSchema.organization)
+    .where(eq(govSchema.organization.id, orgId))
+    .limit(1);
+
+  return row ?? null;
+}

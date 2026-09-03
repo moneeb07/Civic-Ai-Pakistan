@@ -4,9 +4,10 @@ import { redirect } from "next/navigation";
 import { GovPageHeading, GovShell } from "@/components/gov/gov-shell";
 import { DeptManager } from "@/components/gov/dept-manager";
 import { InviteManager } from "@/components/gov/invite-manager";
+import { OrgComplaintList } from "@/components/gov/org-complaint-list";
 import { RoutingInbox } from "@/components/gov/routing-inbox";
 import { ToastProvider } from "@/components/gov/toast";
-import { listUnroutedComplaints } from "@/lib/gov/complaints";
+import { listOrganizationComplaints, listUnroutedComplaints } from "@/lib/gov/complaints";
 import { listPendingInvites } from "@/lib/gov/invites";
 import { ROLE_HOME } from "@/lib/gov/schema";
 import { requireOfficer } from "@/lib/gov/session";
@@ -31,10 +32,13 @@ export default async function GovOrgPage() {
   if (officer.role !== "org_head") redirect(ROLE_HOME[officer.role]);
   if (!officer.orgId) redirect("/gov/login?reason=no_access");
 
-  const [depts, invites, unrouted] = await Promise.all([
+  const [depts, invites, unrouted, allComplaints] = await Promise.all([
     listDepartments(officer.orgId),
     listPendingInvites(officer.id, false),
     listUnroutedComplaints(),
+    // Everything already routed anywhere in this organization — scoped to
+    // officer.orgId inside the query, not filtered here.
+    listOrganizationComplaints(officer.orgId),
   ]);
 
   return (
@@ -46,6 +50,10 @@ export default async function GovOrgPage() {
         />
 
         <RoutingInbox complaints={unrouted} departments={depts} />
+
+        <div className="mt-8">
+          <OrgComplaintList complaints={allComplaints} />
+        </div>
 
         <div className="mt-8">
           <DeptManager orgId={officer.orgId} initialDepts={depts} />

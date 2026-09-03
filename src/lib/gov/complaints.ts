@@ -8,9 +8,12 @@ import { newId } from "./ids";
 import { recordEvent } from "./events";
 import { notifyCitizenOfResolution } from "./citizen-notify";
 import { getFirstStage, getNextStage, getStageById, getWorkflowIdForStage } from "./workflow";
+import { assigneesForAssignments, listAssigneeIds } from "./assignees";
+import { chatMessageCounts } from "./chat";
 import { canViewComplaint, type AssignmentScope } from "./authorize";
 import {
   LOW_RATING_THRESHOLD,
+  type AssigneeDto,
   type ComplaintDto,
   type OfficerDto,
   type StageProgressDto,
@@ -54,31 +57,34 @@ interface AssignmentJoin {
   currentStageName: string | null;
   currentStageTerminal: boolean | null;
   currentStageSla: number | null;
-  assignedOfficerId: string | null;
-  assignedOfficerName: string | null;
   aiSuggestedDeptId: string | null;
   aiConfidence: number | null;
   aiReasoning: string | null;
   aiSuggestionSource: string | null;
 }
 
+/** One row of complaintSelect(), before the side-loaded assignees and chat counts. */
+type ComplaintRow = {
+  reportId: string;
+  title: string | null;
+  description: string | null;
+  category: string | null;
+  severity: string | null;
+  locationLabel: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  submittedAt: Date;
+} & AssignmentJoin & {
+    ratingStars: number | null;
+    ratingComment: string | null;
+    ratedAt: Date | null;
+    stageEnteredAt: Date | null;
+  };
+
 function toComplaintDto(
-  row: {
-    reportId: string;
-    title: string | null;
-    description: string | null;
-    category: string | null;
-    severity: string | null;
-    locationLabel: string | null;
-    latitude: number | null;
-    longitude: number | null;
-    submittedAt: Date;
-  } & AssignmentJoin & {
-      ratingStars: number | null;
-      ratingComment: string | null;
-      ratedAt: Date | null;
-      stageEnteredAt: Date | null;
-    },
+  row: ComplaintRow,
+  assignees: Map<string, AssigneeDto[]>,
+  chatCounts: Map<string, number>,
 ): ComplaintDto {
   const rating =
     row.ratingStars !== null && row.ratedAt !== null
@@ -104,8 +110,7 @@ function toComplaintDto(
             deptName: row.deptName ?? "",
             currentStageId: row.currentStageId,
             currentStageName: row.currentStageName,
-            assignedOfficerId: row.assignedOfficerId,
-            assignedOfficerName: row.assignedOfficerName,
+            assignees: assignees.get(row.assignmentId) ?? [],
             aiSuggestedDeptId: row.aiSuggestedDeptId,
             aiConfidence: row.aiConfidence,
             aiReasoning: row.aiReasoning,
@@ -119,7 +124,29 @@ function toComplaintDto(
     // automatic reopen — see §6.3. The decision stays with a person.
     needsAttention: rating !== null && rating.stars <= LOW_RATING_THRESHOLD,
     rating,
+    chatMessageCount: chatCounts.get(row.reportId) ?? 0,
   };
+}
+
+/*
+ * Assignees and chat counts are fetched for a whole page of complaints in two
+ * queries and passed into the mapper, rather than joined into complaintSelect().
+ *
+ * Joining them would multiply rows: a complaint with three assignees and
+ * twelve messages would come back thirty-six times and every aggregate on the
+ * row — the rating, the open stage — would need de-duplicating. Two extra
+ * round trips is the cheaper and far more readable trade.
+ */
+async function decorate(rows: ComplaintRow[]): Promise<ComplaintDto[]> {
+  const assignmentIds = rows.map((r) => r.assignmentId).filter((id): id is string => Boolean(id));
+  const reportIds = rows.map((r) => r.reportId);
+
+  const [assignees, chatCounts] = await Promise.all([
+    assigneesForAssignments(assignmentIds),
+    chatMessageCounts(reportIds),
+  ]);
+
+  return rows.map((row) => toComplaintDto(row, assignees, chatCounts));
 }
 
 /*
@@ -142,8 +169,6 @@ function complaintSelect() {
       currentStageName: govSchema.deptWorkflowStage.name,
       currentStageTerminal: govSchema.deptWorkflowStage.isTerminal,
       currentStageSla: govSchema.deptWorkflowStage.slaHours,
-      assignedOfficerId: govSchema.complaintAssignment.assignedOfficerId,
-      assignedOfficerName: schema.user.name,
       aiSuggestedDeptId: govSchema.complaintAssignment.aiSuggestedDeptId,
       aiConfidence: govSchema.complaintAssignment.aiConfidence,
       aiReasoning: govSchema.complaintAssignment.aiReasoning,
@@ -163,11 +188,6 @@ function complaintSelect() {
       govSchema.deptWorkflowStage,
       eq(govSchema.deptWorkflowStage.id, govSchema.complaintAssignment.currentStageId),
     )
-    .leftJoin(
-      govSchema.officer,
-      eq(govSchema.officer.id, govSchema.complaintAssignment.assignedOfficerId),
-    )
-    .leftJoin(schema.user, eq(schema.user.id, govSchema.officer.userId))
     .leftJoin(govSchema.complaintRating, eq(govSchema.complaintRating.reportId, schema.report.id))
     .leftJoin(
       govSchema.complaintStageProgress,
@@ -192,7 +212,7 @@ export async function listUnroutedComplaints(): Promise<ComplaintDto[]> {
     )
     .orderBy(desc(schema.report.updatedAt));
 
-  return rows.map(toComplaintDto);
+  return decorate(rows);
 }
 
 /**
@@ -206,7 +226,7 @@ export async function listDepartmentComplaints(deptId: string): Promise<Complain
     .where(eq(govSchema.complaintAssignment.deptId, deptId))
     .orderBy(desc(schema.report.updatedAt));
 
-  return rows.map(toComplaintDto);
+  return decorate(rows);
 }
 
 /** One member's own caseload. Both the department and the assignee are in the WHERE clause. */
@@ -215,15 +235,21 @@ export async function listMemberComplaints(
   officerId: string,
 ): Promise<ComplaintDto[]> {
   const rows = await complaintSelect()
-    .where(
+    /*
+     * Scoped to complaints this officer is actually on, via the assignee join
+     * table — still one query, still no post-filtering in TypeScript.
+     */
+    .innerJoin(
+      govSchema.complaintAssignee,
       and(
-        eq(govSchema.complaintAssignment.deptId, deptId),
-        eq(govSchema.complaintAssignment.assignedOfficerId, officerId),
+        eq(govSchema.complaintAssignee.assignmentId, govSchema.complaintAssignment.id),
+        eq(govSchema.complaintAssignee.officerId, officerId),
       ),
     )
+    .where(eq(govSchema.complaintAssignment.deptId, deptId))
     .orderBy(desc(schema.report.updatedAt));
 
-  return rows.map(toComplaintDto);
+  return decorate(rows);
 }
 
 /** Everything routed anywhere in one organization — the org head's overview. */
@@ -232,7 +258,7 @@ export async function listOrganizationComplaints(orgId: string): Promise<Complai
     .where(eq(govSchema.complaintAssignment.orgId, orgId))
     .orderBy(desc(schema.report.updatedAt));
 
-  return rows.map(toComplaintDto);
+  return decorate(rows);
 }
 
 /**
@@ -248,10 +274,9 @@ export async function getComplaintForOfficer(
   officer: OfficerDto,
 ): Promise<ComplaintDto | null> {
   const rows = await complaintSelect().where(eq(schema.report.id, reportId)).limit(1);
-  const row = rows[0];
-  if (!row) return null;
+  if (rows.length === 0) return null;
 
-  const dto = toComplaintDto(row);
+  const [dto] = await decorate(rows);
 
   // An unrouted complaint is only visible to whoever may route it.
   if (!dto.assignment) {
@@ -261,7 +286,7 @@ export async function getComplaintForOfficer(
   const scope: AssignmentScope = {
     orgId: dto.assignment.orgId,
     deptId: dto.assignment.deptId,
-    assignedOfficerId: dto.assignment.assignedOfficerId,
+    assigneeIds: dto.assignment.assignees.map((a) => a.officerId),
   };
 
   return canViewComplaint(officer, scope) ? dto : null;
@@ -276,14 +301,17 @@ export async function getAssignmentScope(reportId: string): Promise<
       id: govSchema.complaintAssignment.id,
       orgId: govSchema.complaintAssignment.orgId,
       deptId: govSchema.complaintAssignment.deptId,
-      assignedOfficerId: govSchema.complaintAssignment.assignedOfficerId,
       currentStageId: govSchema.complaintAssignment.currentStageId,
     })
     .from(govSchema.complaintAssignment)
     .where(eq(govSchema.complaintAssignment.reportId, reportId))
     .limit(1);
 
-  return row ?? null;
+  if (!row) return null;
+
+  // The assignee list is part of the scope: "may this member advance it?"
+  // cannot be answered without knowing who is on it.
+  return { ...row, assigneeIds: await listAssigneeIds(row.id) };
 }
 
 // -- Routing ---------------------------------------------------------------------
@@ -327,7 +355,6 @@ export async function routeComplaint(input: {
       // Null until a dept head assigns it — routing decides *where*, assignment
       // decides *who*, and only assignment starts the workflow clock.
       currentStageId: null,
-      assignedOfficerId: null,
       aiSuggestionSource: input.acceptedAiSuggestion && hadAiSuggestion ? "ai" : "manual",
     });
 
@@ -346,54 +373,11 @@ export async function routeComplaint(input: {
 }
 
 // -- Assignment --------------------------------------------------------------------
-
-/**
- * Hands a routed complaint to a specific member and starts the workflow.
- *
- * Refuses when the department has not saved a workflow: a complaint cannot
- * enter a process that does not exist, and inventing a default here would
- * apply a process no dept head ever reviewed.
- */
-export async function assignComplaint(input: {
-  reportId: string;
-  assignmentId: string;
-  deptId: string;
-  toOfficerId: string;
-  byOfficerId: string;
-}): Promise<{ ok: true; stageId: string } | { error: "no_workflow" }> {
-  const firstStage = await getFirstStage(input.deptId);
-  if (!firstStage) return { error: "no_workflow" };
-
-  await db.transaction(async (tx) => {
-    await tx
-      .update(govSchema.complaintAssignment)
-      .set({
-        assignedOfficerId: input.toOfficerId,
-        currentStageId: firstStage.id,
-        updatedAt: new Date(),
-      })
-      .where(eq(govSchema.complaintAssignment.id, input.assignmentId));
-
-    await tx.insert(govSchema.complaintStageProgress).values({
-      id: newId(),
-      assignmentId: input.assignmentId,
-      stageId: firstStage.id,
-      enteredAt: new Date(),
-    });
-
-    await recordEvent(
-      {
-        reportId: input.reportId,
-        actorOfficerId: input.byOfficerId,
-        eventType: "assigned_to_member",
-        metadata: { toOfficerId: input.toOfficerId, stageId: firstStage.id },
-      },
-      tx,
-    );
-  });
-
-  return { ok: true, stageId: firstStage.id };
-}
+//
+// Assigning is now a many-to-many operation and lives in ./assignees.ts:
+// addAssignee() starts the workflow on the FIRST person and joins later ones
+// to work already in progress. A single assignComplaint() here could only ever
+// hold one name, which is the thing this feature had to stop doing.
 
 // -- Stage advance ------------------------------------------------------------------
 

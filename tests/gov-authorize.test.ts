@@ -9,7 +9,11 @@ import {
   canManageOrg,
   canReopenComplaint,
   canRouteComplaint,
+  canManageAssignees,
+  canPostToChat,
+  canReadChat,
   canViewComplaint,
+  isChatParticipant,
   type AssignmentScope,
 } from "../src/lib/gov/authorize";
 import type { OfficerDto, OfficerRole } from "../src/lib/gov/schema";
@@ -39,28 +43,44 @@ function officer(
   };
 }
 
+/** officer-1 is on it. */
 const ownScope: AssignmentScope = {
   orgId: "org-1",
   deptId: "dept-1",
-  assignedOfficerId: "officer-1",
+  assigneeIds: ["officer-1"],
 };
 
+/** Someone else in the same department is on it; officer-1 is not. */
 const colleagueScope: AssignmentScope = {
   orgId: "org-1",
   deptId: "dept-1",
-  assignedOfficerId: "officer-2",
+  assigneeIds: ["officer-2"],
+};
+
+/** officer-1 is one of SEVERAL people on it — the case this feature added. */
+const sharedScope: AssignmentScope = {
+  orgId: "org-1",
+  deptId: "dept-1",
+  assigneeIds: ["officer-2", "officer-1", "officer-7"],
+};
+
+/** Routed to the department but nobody assigned yet. */
+const unassignedScope: AssignmentScope = {
+  orgId: "org-1",
+  deptId: "dept-1",
+  assigneeIds: [],
 };
 
 const otherDeptScope: AssignmentScope = {
   orgId: "org-1",
   deptId: "dept-2",
-  assignedOfficerId: "officer-3",
+  assigneeIds: ["officer-3"],
 };
 
 const otherOrgScope: AssignmentScope = {
   orgId: "org-2",
   deptId: "dept-9",
-  assignedOfficerId: "officer-9",
+  assigneeIds: ["officer-9"],
 };
 
 describe("canManageOrg", () => {
@@ -117,11 +137,23 @@ describe("canViewComplaint", () => {
     assert.equal(canViewComplaint(officer("member"), ownScope), true);
     assert.equal(canViewComplaint(officer("member"), colleagueScope), false);
   });
+
+  it("shows a member a complaint they SHARE with colleagues", () => {
+    assert.equal(canViewComplaint(officer("member"), sharedScope), true);
+  });
+
+  it("hides a routed-but-unassigned complaint from every member", () => {
+    assert.equal(canViewComplaint(officer("member"), unassignedScope), false);
+  });
 });
 
 describe("canAdvanceStage", () => {
   it("lets the assigned member advance their own complaint", () => {
     assert.equal(canAdvanceStage(officer("member"), ownScope), true);
+  });
+
+  it("lets ANY of several assigned members advance a shared complaint", () => {
+    assert.equal(canAdvanceStage(officer("member"), sharedScope), true);
   });
 
   it("refuses a member on a colleague's complaint", () => {
@@ -256,5 +288,79 @@ describe("canInvite", () => {
       canInvite(officer("platform_admin"), { role: "member", orgId: "org-1", deptId: null }),
       { allowed: false, reason: "scope_missing" },
     );
+  });
+});
+
+describe("chat participation", () => {
+  it("puts the organization head in every complaint in their organization", () => {
+    assert.equal(isChatParticipant(officer("org_head"), ownScope), true);
+    assert.equal(isChatParticipant(officer("org_head"), otherDeptScope), true);
+  });
+
+  it("keeps an organization head out of another organization's conversations", () => {
+    assert.equal(isChatParticipant(officer("org_head"), otherOrgScope), false);
+  });
+
+  it("puts the department head in every complaint routed to their department", () => {
+    assert.equal(isChatParticipant(officer("dept_head"), colleagueScope), true);
+    assert.equal(isChatParticipant(officer("dept_head"), otherDeptScope), false);
+  });
+
+  it("puts an assigned member in — and every one of several assignees", () => {
+    assert.equal(isChatParticipant(officer("member"), ownScope), true);
+    assert.equal(isChatParticipant(officer("member"), sharedScope), true);
+  });
+
+  it("keeps an unassigned member out of a colleague's conversation", () => {
+    assert.equal(isChatParticipant(officer("member"), colleagueScope), false);
+    assert.equal(isChatParticipant(officer("member"), unassignedScope), false);
+  });
+
+  it("leaves a platform admin out of the room, even though they can read it", () => {
+    // Oversight is not participation: a platform admin sitting silently in
+    // every conversation in the country would change what people write in them.
+    assert.equal(isChatParticipant(officer("platform_admin"), ownScope), false);
+    assert.equal(canReadChat(officer("platform_admin"), ownScope), true);
+    assert.equal(canPostToChat(officer("platform_admin"), ownScope), false);
+  });
+
+  it("never lets someone read a chat about a complaint they cannot open", () => {
+    // The chat must not be a looser second path to the same case.
+    for (const role of ["org_head", "dept_head", "member"] as const) {
+      for (const scope of [ownScope, colleagueScope, otherDeptScope, otherOrgScope]) {
+        if (canReadChat(officer(role), scope)) {
+          assert.equal(
+            canViewComplaint(officer(role), scope),
+            true,
+            `${role} could read a chat for a complaint they cannot view`,
+          );
+        }
+      }
+    }
+  });
+
+  it("never lets someone post where they cannot read", () => {
+    for (const role of ["platform_admin", "org_head", "dept_head", "member"] as const) {
+      for (const scope of [ownScope, sharedScope, otherDeptScope, otherOrgScope]) {
+        if (canPostToChat(officer(role), scope)) {
+          assert.equal(canReadChat(officer(role), scope), true, `${role} could post but not read`);
+        }
+      }
+    }
+  });
+});
+
+describe("canManageAssignees", () => {
+  it("is the department head's job", () => {
+    assert.equal(canManageAssignees(officer("dept_head"), colleagueScope), true);
+    assert.equal(canManageAssignees(officer("dept_head"), otherDeptScope), false);
+  });
+
+  it("is not a member's job, even on their own complaint", () => {
+    assert.equal(canManageAssignees(officer("member"), ownScope), false);
+  });
+
+  it("is not the organization head's job — they route, departments staff", () => {
+    assert.equal(canManageAssignees(officer("org_head"), ownScope), false);
   });
 });

@@ -46,6 +46,8 @@ export const COMPLAINT_EVENT_TYPES = [
   "citizen_rated",
   "reopened",
   "workflow_updated",
+  "assignee_added",
+  "assignee_removed",
 ] as const;
 export type ComplaintEventType = (typeof COMPLAINT_EVENT_TYPES)[number];
 
@@ -215,6 +217,18 @@ export const assignComplaintSchema = z.object({
 });
 export type AssignComplaintValues = z.infer<typeof assignComplaintSchema>;
 
+/*
+ * Chat messages.
+ *
+ * Trimmed and non-empty so a stray Enter cannot post a blank line into a
+ * record of how a public complaint was handled. The 4000-character ceiling is
+ * generous for a working conversation and bounds what one request can write.
+ */
+export const chatMessageSchema = z.object({
+  body: z.string().trim().min(1).max(4000),
+});
+export type ChatMessageValues = z.infer<typeof chatMessageSchema>;
+
 export const advanceStageSchema = z.object({
   photoUrl: z.string().trim().url().max(2000).nullable().optional(),
   note: z.string().trim().min(1).max(1200).nullable().optional(),
@@ -312,8 +326,8 @@ export interface ComplaintDto {
     deptName: string;
     currentStageId: string | null;
     currentStageName: string | null;
-    assignedOfficerId: string | null;
-    assignedOfficerName: string | null;
+    /** Everyone working the complaint. Empty when it is routed but not yet assigned. */
+    assignees: AssigneeDto[];
     aiSuggestedDeptId: string | null;
     aiConfidence: number | null;
     aiReasoning: string | null;
@@ -324,6 +338,32 @@ export interface ComplaintDto {
   } | null;
   rating: { stars: number; comment: string | null; ratedAt: string } | null;
   needsAttention: boolean;
+  /** Messages in the complaint's group chat, for the badge on its card. */
+  chatMessageCount: number;
+}
+
+export interface AssigneeDto {
+  officerId: string;
+  name: string;
+  role: OfficerRole;
+}
+
+export interface ChatMessageDto {
+  id: string;
+  /** Null when the officer who wrote it no longer exists; the message stays. */
+  authorOfficerId: string | null;
+  authorName: string;
+  authorRole: OfficerRole | null;
+  body: string;
+  createdAt: string;
+}
+
+/** A person in the room, and why they are in it. */
+export interface ChatParticipantDto {
+  officerId: string;
+  name: string;
+  role: OfficerRole;
+  reason: "organization_head" | "department_head" | "assignee";
 }
 
 export interface StageProgressDto {

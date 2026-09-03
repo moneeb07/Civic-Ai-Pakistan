@@ -43,6 +43,13 @@
       "when": 1788005138527,
       "tag": "0005_damp_white_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788106575118,
+      "tag": "0006_true_triathlon",
+      "breakpoints": true
     }
   ]
 }

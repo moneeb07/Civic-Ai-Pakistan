@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, MapPin, Star } from "lucide-react";
+import { AlertTriangle, MapPin, MessagesSquare, Star } from "lucide-react";
 
 import { formatTimestamp, humanizeCategory, isOverdue } from "@/lib/gov/format";
 import type { ComplaintDto } from "@/lib/gov/schema";
@@ -24,10 +24,18 @@ export function ComplaintCard({
   complaint,
   href,
   footer,
+  chatHref,
 }: {
   complaint: ComplaintDto;
   href?: string;
   footer?: React.ReactNode;
+  /*
+   * When given, renders the discussion icon. Absent for an unrouted complaint,
+   * which has no department and no assignees yet and therefore no group to
+   * talk in — showing a chat icon that opened an empty room nobody could post
+   * in would be worse than showing none.
+   */
+  chatHref?: string;
 }) {
   const assignment = complaint.assignment;
   const overdue = isOverdue(assignment?.stageEnteredAt ?? null, assignment?.slaHours ?? null);
@@ -93,9 +101,11 @@ export function ComplaintCard({
       {assignment ? (
         <p className="mt-2 truncate text-[0.75rem] text-muted">
           {assignment.deptName}
-          {assignment.assignedOfficerName
-            ? ` · ${assignment.assignedOfficerName}`
-            : ` · ${t.gov.dept.unassigned}`}
+          {assignment.assignees.length === 0
+            ? ` · ${t.gov.dept.unassigned}`
+            : assignment.assignees.length === 1
+              ? ` · ${assignment.assignees[0].name}`
+              : ` · ${assignment.assignees[0].name} +${assignment.assignees.length - 1}`}
         </p>
       ) : null}
 
@@ -109,15 +119,36 @@ export function ComplaintCard({
     href && "hover:border-civic-200 hover:bg-civic-50/40",
   );
 
-  if (href) {
-    return (
-      <Link href={href} className={shell}>
-        {body}
-      </Link>
-    );
-  }
+  /*
+   * The chat icon sits OUTSIDE the card's own link rather than inside it:
+   * an anchor nested in an anchor is invalid HTML and browsers recover from
+   * it unpredictably, which would make the icon's click target unreliable.
+   */
+  const card = href ? (
+    <Link href={href} className={cn(shell, "flex-1")}>
+      {body}
+    </Link>
+  ) : (
+    <div className={cn(shell, "flex-1")}>{body}</div>
+  );
 
-  return <div className={shell}>{body}</div>;
+  if (!chatHref) return card;
+
+  return (
+    <div className="flex items-stretch gap-2">
+      {card}
+      <Link
+        href={chatHref}
+        aria-label={`${t.gov.chat.open} — ${complaint.chatMessageCount} ${t.gov.chat.messageCount}`}
+        className="flex w-14 shrink-0 flex-col items-center justify-center gap-1 rounded-[18px] border border-line bg-surface text-muted transition-colors hover:border-civic-200 hover:bg-civic-50/50 hover:text-civic-700"
+      >
+        <MessagesSquare className="size-5" aria-hidden="true" />
+        {complaint.chatMessageCount > 0 ? (
+          <span className="text-[0.6875rem] font-semibold">{complaint.chatMessageCount}</span>
+        ) : null}
+      </Link>
+    </div>
+  );
 }
 
 function Badge({ tone, children }: { tone: "success" | "neutral"; children: React.ReactNode }) {

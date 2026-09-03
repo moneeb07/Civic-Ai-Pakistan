@@ -1,6 +1,9 @@
 "use client";
 
 import type {
+  AssigneeDto,
+  ChatMessageDto,
+  ChatParticipantDto,
   ComplaintDto,
   DepartmentDto,
   InviteDto,
@@ -145,11 +148,46 @@ export function routeComplaint(
   return post(`/api/gov/complaints/${reportId}/route-to-dept`, { deptId });
 }
 
-export function assignComplaint(
+// -- Assignees ------------------------------------------------------------------
+
+export function addAssignee(
   reportId: string,
   officerId: string,
-): Promise<{ stageId: string; message: string }> {
-  return post(`/api/gov/complaints/${reportId}/assign`, { officerId });
+): Promise<{ startedWorkflow: boolean; assignees: AssigneeDto[]; message: string }> {
+  return post(`/api/gov/complaints/${reportId}/assignees`, { officerId });
+}
+
+export function removeAssignee(
+  reportId: string,
+  officerId: string,
+): Promise<{ assignees: AssigneeDto[]; message: string }> {
+  return fetch(`/api/gov/complaints/${reportId}/assignees/${officerId}`, { method: "DELETE" })
+    .then((r) => unwrap<{ assignees: AssigneeDto[]; message: string }>(r));
+}
+
+// -- Chat -----------------------------------------------------------------------
+
+export interface ChatPayload {
+  messages: ChatMessageDto[];
+  participants: ChatParticipantDto[];
+  /** True when the server returned only what arrived after `since`. */
+  incremental: boolean;
+  canPost: boolean;
+}
+
+/**
+ * Fetches the transcript, or only what has arrived since `since`.
+ *
+ * The panel polls with `since` so an open conversation costs one small
+ * response per tick rather than the whole history.
+ */
+export function getChat(reportId: string, since?: string): Promise<ChatPayload> {
+  const query = since ? `?since=${encodeURIComponent(since)}` : "";
+  return fetch(`/api/gov/complaints/${reportId}/chat${query}`).then((r) => unwrap<ChatPayload>(r));
+}
+
+export function postChatMessage(reportId: string, body: string): Promise<ChatMessageDto> {
+  return post(`/api/gov/complaints/${reportId}/chat`, { body });
 }
 
 export function advanceStage(

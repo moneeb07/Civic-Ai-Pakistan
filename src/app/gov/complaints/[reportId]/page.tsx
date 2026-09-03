@@ -6,7 +6,16 @@ import { Card, CardBody, CardEyebrow, CardTitle } from "@/components/ui/card";
 import { GovPageHeading, GovShell } from "@/components/gov/gov-shell";
 import { StageAdvance } from "@/components/gov/stage-advance";
 import { ToastProvider } from "@/components/gov/toast";
-import { canAdvanceStage, canReopenComplaint } from "@/lib/gov/authorize";
+import {
+  canAdvanceStage,
+  canManageAssignees,
+  canPostToChat,
+  canReopenComplaint,
+} from "@/lib/gov/authorize";
+import { AssigneeManager } from "@/components/gov/assignee-manager";
+import { ChatPanel } from "@/components/gov/chat-panel";
+import { chatParticipants, listChatMessages } from "@/lib/gov/chat";
+import { listDepartmentMembers } from "@/lib/gov/store";
 import { getComplaintForOfficer, listStageProgress } from "@/lib/gov/complaints";
 import { formatSla, formatTimestamp, humanizeCategory, isOverdue } from "@/lib/gov/format";
 import { ROLE_HOME } from "@/lib/gov/schema";
@@ -51,9 +60,23 @@ export default async function GovComplaintPage({
     ? {
         orgId: assignment.orgId,
         deptId: assignment.deptId,
-        assignedOfficerId: assignment.assignedOfficerId,
+        assigneeIds: assignment.assignees.map((a) => a.officerId),
       }
     : null;
+
+  /*
+   * The discussion and its membership are loaded here, on the server, so the
+   * panel paints with real content on first render instead of a skeleton that
+   * swaps a moment later. Only fetched once the complaint is routed — there is
+   * no group before that.
+   */
+  const [messages, participants, deptMembers] = assignment
+    ? await Promise.all([
+        listChatMessages(reportId),
+        chatParticipants(assignment.orgId, assignment.deptId, scope!.assigneeIds),
+        listDepartmentMembers(assignment.deptId),
+      ])
+    : [[], [], []];
 
   const overdue = isOverdue(assignment?.stageEnteredAt ?? null, assignment?.slaHours ?? null);
 
@@ -159,7 +182,11 @@ export default async function GovComplaintPage({
                   <dl className="mt-4 space-y-3">
                     <Detail
                       label={t.gov.complaint.assignedLabel}
-                      value={assignment.assignedOfficerName ?? t.gov.dept.unassigned}
+                      value={
+                        assignment.assignees.length === 0
+                          ? t.gov.dept.unassigned
+                          : assignment.assignees.map((a) => a.name).join(", ")
+                      }
                     />
                     <Detail
                       label={t.gov.complaint.stageLabel}
@@ -204,6 +231,15 @@ export default async function GovComplaintPage({
             ) : null}
 
             {assignment && scope ? (
+              <AssigneeManager
+                reportId={complaint.reportId}
+                initialAssignees={assignment.assignees}
+                candidates={deptMembers.filter((m) => m.role === "member")}
+                canManage={canManageAssignees(officer, scope)}
+              />
+            ) : null}
+
+            {assignment && scope ? (
               <StageAdvance
                 reportId={complaint.reportId}
                 stageName={assignment.currentStageName}
@@ -216,6 +252,29 @@ export default async function GovComplaintPage({
             ) : null}
           </div>
         </div>
+
+        {assignment && scope ? (
+          <div className="mt-4">
+            <ChatPanel
+              reportId={complaint.reportId}
+              currentOfficerId={officer.id}
+              initialMessages={messages}
+              initialParticipants={participants}
+              canPost={canPostToChat(officer, scope)}
+            />
+          </div>
+        ) : (
+          <Card className="mt-4 border-dashed shadow-none">
+            <CardBody className="py-8 text-center">
+              <h2 className="text-[1.0625rem] font-semibold tracking-tight text-ink">
+                {t.gov.chat.notRoutedTitle}
+              </h2>
+              <p className="mx-auto mt-2 max-w-md text-[0.9375rem] leading-relaxed text-muted">
+                {t.gov.chat.notRoutedBody}
+              </p>
+            </CardBody>
+          </Card>
+        )}
       </GovShell>
     </ToastProvider>
   );

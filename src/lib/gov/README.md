@@ -120,7 +120,7 @@ Only these three, all additively — no existing line was edited or reordered:
 
 | File | Change |
 | --- | --- |
-| `src/db/schema.ts` | 11 tables + a second `import` statement, all appended **below** the existing `schema` export. The gov tables are exported as `govSchema` and are deliberately *not* added to the `schema` object, which belongs to Better Auth's adapter. |
+| `src/db/schema.ts` | 13 tables + a second `import` statement, all appended **below** the existing `schema` export. The gov tables are exported as `govSchema` and are deliberately *not* added to the `schema` object, which belongs to Better Auth's adapter. |
 | `src/lib/i18n/dictionaries/en.ts` | One new top-level `gov:` key. |
 | `src/proxy.ts` | A new `GOV_PROTECTED_PREFIXES` list, a new `if` block, and `/gov/:path*` added to the matcher. Kept separate from `PROTECTED_PREFIXES` because the redirect target differs — an officer belongs at `/gov/login`, not the citizen sign-in. |
 
@@ -154,8 +154,8 @@ ownership boundary.
 | --- | --- | --- |
 | `platform_admin` | none | Create organizations, invite org heads, read everything, **advance nothing** |
 | `org_head` | one org | Create departments, invite dept heads, route confirmed complaints to a department |
-| `dept_head` | one dept | Define the workflow, assign complaints to members, advance any stage, reopen |
-| `member` | one dept | See **only what is assigned to them**, advance their own stages |
+| `dept_head` | one dept | Define the workflow, put **one or more** members on a complaint, advance any stage, reopen |
+| `member` | one dept | See **only complaints they are assigned to**, advance those stages, take part in their discussions |
 
 Enforced in three places, and all three must agree:
 
@@ -169,6 +169,44 @@ Out-of-scope access answers **404, never 403** — a 403 would confirm the row
 exists, telling an officer that a complaint id belongs to another department.
 
 ---
+
+## Per-complaint group chat
+
+Every routed complaint has exactly one discussion thread. **Membership is
+derived, never stored** (`chatParticipants()` in `chat.ts`):
+
+| Who | Why they are in it |
+| --- | --- |
+| Organization head | They routed it |
+| Department head | It was routed to their department |
+| Every assignee | They are working on it |
+
+A stored participant list would have to be updated on every route, assign and
+unassign, and the first missed update would either lock someone out of a
+conversation about their own work or leave a departed member reading it.
+Deriving it means adding a second assignee puts them in the room with no extra
+step, and removing them takes them out of it.
+
+**Read vs post are different rules.** Reading is gated by the same rule as
+viewing the complaint, so the chat is never a looser second path to the same
+case. Posting requires being a participant. A platform admin can therefore
+read any conversation for oversight but cannot join it — sitting silently in
+every conversation would change what people are willing to write.
+
+Updates arrive by **polling** (`GET .../chat?since=<iso>`, 10s, paused while
+the tab is hidden), not WebSockets — real-time transport is still out of scope.
+
+## Multiple assignees
+
+`complaint_assignment.assigned_officer_id` is **gone**, replaced by the
+`complaint_assignee` join table. A department head puts several people on one
+problem: the **first** assignment starts the workflow at stage 0, later ones
+join work already in progress and must not restart it. Removing the last
+remaining assignee is refused — a complaint mid-workflow with nobody on it is
+invisible work, still counting against its SLA but gone from every queue.
+
+Migration `0006` carries a **hand-written backfill** that moves each existing
+single assignee into the new table before the column is dropped.
 
 ## Not built in this ticket (deliberately)
 

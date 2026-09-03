@@ -9,7 +9,7 @@ import {
   listPendingInvites,
 } from "@/lib/gov/invites";
 import { createInviteSchema } from "@/lib/gov/schema";
-import { findDepartment } from "@/lib/gov/store";
+import { findDepartment, findOrganization } from "@/lib/gov/store";
 import { sendInviteEmail } from "@/services/email/invite-mailer";
 
 export const runtime = "nodejs";
@@ -67,7 +67,15 @@ export const POST = withOfficer(async ({ officer }, request) => {
     deptName = dept.name;
   }
   if (target.orgId) {
-    orgName = officer.orgId === target.orgId ? (officer.orgName ?? undefined) : undefined;
+    /*
+     * Looked up rather than read off the inviting officer: a platform admin
+     * has no orgId of their own, so relying on theirs would silently drop the
+     * "Org:" line from every invite they send — leaving the recipient with no
+     * idea which body they are being invited into.
+     */
+    const org = await findOrganization(target.orgId);
+    if (!org) return badRequest("That organization doesn't exist.", "out_of_scope");
+    orgName = org.name;
   }
 
   const created = await createInvite({

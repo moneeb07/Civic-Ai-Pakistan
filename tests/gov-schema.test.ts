@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 
 import {
   acceptInviteSchema,
+  chatMessageSchema,
   advanceStageSchema,
   createDepartmentSchema,
   createInviteSchema,
@@ -237,5 +238,40 @@ describe("routeComplaintSchema", () => {
   it("requires a destination department", () => {
     assert.equal(routeComplaintSchema.safeParse({}).success, false);
     assert.equal(routeComplaintSchema.safeParse({ deptId: "dept-1" }).success, true);
+  });
+});
+
+describe("chatMessageSchema", () => {
+  it("accepts an ordinary message", () => {
+    const result = chatMessageSchema.safeParse({ body: "Inspected the site this morning." });
+    assert.equal(result.success, true);
+  });
+
+  it("trims surrounding whitespace rather than storing it", () => {
+    const result = chatMessageSchema.safeParse({ body: "  on my way  " });
+    assert.equal(result.success, true);
+    assert.equal(result.success && result.data.body, "on my way");
+  });
+
+  it("rejects an empty or whitespace-only message", () => {
+    // A stray Enter must not put a blank line into the record of how a public
+    // complaint was handled.
+    assert.equal(chatMessageSchema.safeParse({ body: "" }).success, false);
+    assert.equal(chatMessageSchema.safeParse({ body: "   \n  " }).success, false);
+  });
+
+  it("keeps deliberate internal line breaks", () => {
+    const result = chatMessageSchema.safeParse({ body: "Two things:\n1. depth\n2. width" });
+    assert.equal(result.success, true);
+    assert.equal(result.success && result.data.body.split("\n").length, 3);
+  });
+
+  it("rejects a message beyond the 4000-character ceiling", () => {
+    assert.equal(chatMessageSchema.safeParse({ body: "x".repeat(4001) }).success, false);
+    assert.equal(chatMessageSchema.safeParse({ body: "x".repeat(4000) }).success, true);
+  });
+
+  it("rejects a missing body outright", () => {
+    assert.equal(chatMessageSchema.safeParse({}).success, false);
   });
 });

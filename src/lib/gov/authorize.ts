@@ -19,7 +19,18 @@ import { INVITABLE_ROLES } from "./schema";
 export interface AssignmentScope {
   orgId: string;
   deptId: string;
-  assignedOfficerId: string | null;
+  /**
+   * Every officer currently assigned to the complaint.
+   *
+   * A list rather than a single id because a department head can put several
+   * people on one problem. Empty means routed but not yet assigned.
+   */
+  assigneeIds: string[];
+}
+
+/** True when this officer is one of the people actually working the complaint. */
+function isAssignee(officer: OfficerDto, assignment: AssignmentScope): boolean {
+  return assignment.assigneeIds.includes(officer.id);
 }
 
 export function canManageOrg(officer: OfficerDto, orgId: string): boolean {
@@ -56,7 +67,7 @@ export function canViewComplaint(officer: OfficerDto, assignment: AssignmentScop
   if (officer.role === "org_head") return officer.orgId === assignment.orgId;
   if (officer.role === "dept_head") return officer.deptId === assignment.deptId;
   if (officer.role === "member") {
-    return officer.deptId === assignment.deptId && assignment.assignedOfficerId === officer.id;
+    return officer.deptId === assignment.deptId && isAssignee(officer, assignment);
   }
   return false;
 }
@@ -72,7 +83,7 @@ export function canViewComplaint(officer: OfficerDto, assignment: AssignmentScop
 export function canAdvanceStage(officer: OfficerDto, assignment: AssignmentScope): boolean {
   if (officer.role === "dept_head") return officer.deptId === assignment.deptId;
   if (officer.role === "member") {
-    return officer.deptId === assignment.deptId && assignment.assignedOfficerId === officer.id;
+    return officer.deptId === assignment.deptId && isAssignee(officer, assignment);
   }
   return false;
 }
@@ -145,4 +156,54 @@ export function canInvite(
   }
 
   return { allowed: false, reason: "role_not_permitted" };
+}
+
+// -- Chat ---------------------------------------------------------------------
+
+/*
+ * Every complaint has one group chat, and its membership is derived from who is
+ * currently responsible for the work rather than stored: the organization's
+ * head, the head of the department it was routed to, and everyone assigned to
+ * it. That is exactly the set of people the ticket describes, and deriving it
+ * means adding a second assignee puts them in the room with no extra step.
+ */
+
+/**
+ * Whether this officer is a participant — i.e. may POST.
+ *
+ * A platform admin is deliberately absent. They can read any complaint for
+ * oversight, but they are not part of the working group and putting them in
+ * every conversation in the country would change what people are willing to
+ * say in it.
+ */
+export function isChatParticipant(officer: OfficerDto, assignment: AssignmentScope): boolean {
+  if (officer.role === "org_head") return officer.orgId === assignment.orgId;
+  if (officer.role === "dept_head") return officer.deptId === assignment.deptId;
+  if (officer.role === "member") {
+    return officer.deptId === assignment.deptId && isAssignee(officer, assignment);
+  }
+  return false;
+}
+
+/**
+ * Who may READ the transcript.
+ *
+ * Deliberately the same rule as viewing the complaint: if the chat were
+ * readable by anyone who could not open the complaint it discusses, it would
+ * be a second, looser access path to the same case. A platform admin can
+ * therefore read but not post.
+ */
+export function canReadChat(officer: OfficerDto, assignment: AssignmentScope): boolean {
+  return canViewComplaint(officer, assignment);
+}
+
+/** Who may post. Participants only — reading for oversight is not taking part. */
+export function canPostToChat(officer: OfficerDto, assignment: AssignmentScope): boolean {
+  return isChatParticipant(officer, assignment);
+}
+
+/** Adding and removing the people working a complaint is the department head's call. */
+export function canManageAssignees(officer: OfficerDto, assignment: AssignmentScope): boolean {
+  if (officer.role === "platform_admin") return true;
+  return officer.role === "dept_head" && officer.deptId === assignment.deptId;
 }

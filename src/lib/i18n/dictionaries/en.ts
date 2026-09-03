@@ -662,6 +662,10 @@ export const en = {
       workflowReady: "Workflow defined",
       workflowMissing: "No workflow yet",
 
+      allComplaintsEyebrow: "All complaints in your organization",
+      noComplaintsTitle: "No complaints yet",
+      noComplaintsBody:
+        "Once you route confirmed complaints to a department, they'll all be listed here with their discussions.",
       inboxEyebrow: "Waiting to be routed",
       noInboxTitle: "Nothing waiting",
       noInboxBody:
@@ -688,6 +692,16 @@ export const en = {
       assigning: "Assigning…",
       assigned: "Complaint assigned.",
       unassigned: "Not assigned",
+      chooseAssignee: "Choose who should handle this.",
+      alreadyAssigned: "That person is already working on this complaint.",
+      addAssignee: "Add another person",
+      assigneeAdded: "Added to this complaint.",
+      assigneeRemoved: "Removed from this complaint.",
+      removeAssignee: "Remove from this complaint",
+      cannotRemoveLastAssignee:
+        "Add someone else first — a complaint in progress cannot be left with nobody on it.",
+      assigneesEyebrow: "Working on this",
+      workingOn: "working on it",
       needsWorkflow: "Define a workflow before assigning complaints.",
       openWorkflow: "Define workflow",
       needsAttention: "Needs attention",
@@ -765,6 +779,32 @@ export const en = {
       ratingStars: "out of 5",
       noRating: "The citizen hasn't rated this yet.",
       notStarted: "This complaint hasn't been assigned to anyone yet.",
+    },
+
+    chat: {
+      title: "Discussion",
+      subtitle: "Everyone working on this complaint can see and reply here.",
+      open: "Open discussion",
+      participantsEyebrow: "In this conversation",
+      reasonOrgHead: "Organization head",
+      reasonDeptHead: "Department head",
+      reasonAssignee: "Working on it",
+      placeholder: "Write a message…",
+      send: "Send",
+      sending: "Sending…",
+      emptyTitle: "No messages yet",
+      emptyBody:
+        "Start the conversation — the organization head, the department head and everyone assigned will see it.",
+      emptyMessage: "Write something before sending.",
+      cannotPost:
+        "You can read this conversation but not post in it — only the people responsible for the complaint can reply.",
+      readOnlyNotice: "You're viewing this conversation for oversight. Only the people working on the complaint can post.",
+      notRoutedTitle: "No discussion yet",
+      notRoutedBody:
+        "A discussion starts once the complaint is routed to a department — there is no group until then.",
+      you: "You",
+      messageCount: "messages",
+      loadFailed: "We couldn't load the discussion.",
     },
 
     common: {

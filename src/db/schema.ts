@@ -515,9 +515,16 @@ export const complaintAssignment = pgTable(
     currentStageId: text("current_stage_id").references(() => deptWorkflowStage.id, {
       onDelete: "set null",
     }),
-    assignedOfficerId: text("assigned_officer_id").references(() => officer.id, {
-      onDelete: "set null",
-    }),
+
+    /*
+     * Who is working on this lives in `complaint_assignee`, not here.
+     *
+     * A single `assigned_officer_id` column could only ever hold one person,
+     * and a department head routinely needs two or three on the same problem.
+     * Keeping a "primary" column alongside the join table would mean two
+     * sources of truth that disagree the moment that one person is removed,
+     * so there is exactly one: the rows in complaint_assignee.
+     */
 
     aiSuggestedOrgId: text("ai_suggested_org_id").references(() => organization.id, {
       onDelete: "set null",
@@ -541,7 +548,6 @@ export const complaintAssignment = pgTable(
     index("complaint_assignment_report_id_idx").on(table.reportId),
     index("complaint_assignment_dept_id_idx").on(table.deptId),
     index("complaint_assignment_org_id_idx").on(table.orgId),
-    index("complaint_assignment_officer_idx").on(table.assignedOfficerId),
   ],
 );
 
@@ -675,6 +681,81 @@ export const citizenNotification = pgTable(
   ],
 );
 
+/*
+ * Who is working on a complaint. Many officers, one complaint.
+ *
+ * A department head assigns the first member, which starts the workflow, and
+ * may add more as the work turns out to need them. Every assignee is a member
+ * (or head) of the department the complaint was routed to — enforced by the
+ * store, which looks assignees up scoped to that department.
+ *
+ * `addedByOfficerId` records who put them on it, because "why am I on this?"
+ * is a question a member will ask.
+ */
+export const complaintAssignee = pgTable(
+  "complaint_assignee",
+  {
+    id: text("id").primaryKey(),
+    assignmentId: text("assignment_id")
+      .notNull()
+      .references(() => complaintAssignment.id, { onDelete: "cascade" }),
+    officerId: text("officer_id")
+      .notNull()
+      .references(() => officer.id, { onDelete: "cascade" }),
+    addedByOfficerId: text("added_by_officer_id").references(() => officer.id, {
+      onDelete: "set null",
+    }),
+    addedAt: timestamp("added_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("complaint_assignee_assignment_idx").on(table.assignmentId),
+    index("complaint_assignee_officer_idx").on(table.officerId),
+    // One row per person per complaint: adding someone twice is a no-op, not a duplicate.
+    uniqueIndex("complaint_assignee_unique").on(table.assignmentId, table.officerId),
+  ],
+);
+
+/*
+ * The per-complaint group chat.
+ *
+ * There is no separate conversation table because the conversation IS the
+ * complaint: exactly one thread per report, for its lifetime. Adding a
+ * `conversation` row keyed 1:1 to `report_id` would buy nothing but a join.
+ *
+ * Participation is DERIVED, never stored — see chatParticipants() in
+ * src/lib/gov/chat.ts. The people in the room are whoever is currently
+ * responsible: the organization's head, the head of the department it was
+ * routed to, and everyone assigned to it. Storing a participant list would
+ * mean maintaining it on every route, assign and unassign, and it would drift.
+ *
+ * `authorOfficerId` is nullable with ON DELETE SET NULL so removing an officer
+ * never deletes the conversation they took part in — the transcript is a
+ * record of how a public complaint was handled. Such messages render as
+ * "Former member" rather than vanishing.
+ */
+export const complaintChatMessage = pgTable(
+  "complaint_chat_message",
+  {
+    id: text("id").primaryKey(),
+    reportId: text("report_id")
+      .notNull()
+      .references(() => report.id, { onDelete: "cascade" }),
+    authorOfficerId: text("author_officer_id").references(() => officer.id, {
+      onDelete: "set null",
+    }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("complaint_chat_message_report_idx").on(table.reportId),
+    index("complaint_chat_message_created_at_idx").on(table.createdAt),
+  ],
+);
+
 /** The gov side's own table accessor, so gov code never reaches into `schema` above. */
 export const govSchema = {
   organization,
@@ -684,7 +765,9 @@ export const govSchema = {
   deptWorkflow,
   deptWorkflowStage,
   complaintAssignment,
+  complaintAssignee,
   complaintStageProgress,
+  complaintChatMessage,
   complaintEvent,
   complaintRating,
   citizenNotification,
