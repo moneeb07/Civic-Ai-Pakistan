@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getAuthorityViewer } from "@/lib/authority/access";
+import { findOfficerByUserId } from "@/lib/gov/session";
 import { getCitizenProfile } from "@/lib/profile";
 
 export { safeNextPath } from "@/lib/civic/next-path";
@@ -30,13 +30,13 @@ export interface LandingDecision {
 }
 
 export async function resolveLanding(userId: string): Promise<LandingDecision> {
-  const [viewer, profile] = await Promise.all([
-    getAuthorityViewer(),
+  const [officer, profile] = await Promise.all([
+    findOfficerByUserId(userId),
     getCitizenProfile(userId),
   ]);
 
-  if (!viewer) return { role: "citizen", redirectTo: null };
+  if (!officer) return { role: "citizen", redirectTo: null };
   if (profile) return { role: "both", redirectTo: null };
 
-  return { role: "authority", redirectTo: "/authority" };
+  return { role: "authority", redirectTo: "/gov" };
 }

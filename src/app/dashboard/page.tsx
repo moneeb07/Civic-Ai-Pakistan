@@ -1,21 +1,29 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  ArrowRight,
   BarChart3,
   Building2,
   Camera,
   Droplets,
   FileText,
   Lightbulb,
+  MessagesSquare,
   Mic,
-  PencilLine,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
 
-import { CivicAILogo } from "@/components/brand/civicai-logo";
-import { ActionRow } from "@/components/ui/action-row";
+import { CitizenShell } from "@/components/dashboard/citizen-shell";
+import { StatusProgress } from "@/components/civic/status-progress";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardEyebrow } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/states";
+import { StatCard } from "@/components/ui/stat-card";
+import { formatDate } from "@/lib/civic/format-date";
+import { getCitizenSummary, listCitizenReports } from "@/lib/civic/tracking";
+import { listThreadsForCitizen } from "@/lib/gov/clarification";
 import { getDictionary } from "@/lib/i18n";
 import { getCitizenProfile } from "@/lib/profile";
 import { requireSession } from "@/lib/session";
@@ -23,162 +31,332 @@ import { resolveLanding } from "@/lib/civic/landing";
 
 const t = getDictionary();
 
-export const metadata: Metadata = { title: "Home" };
 export const dynamic = "force-dynamic";
 
+export const metadata: Metadata = { title: "Dashboard · CivicAI" };
+
 function greeting(): string {
-  const hour = new Date().getHours();
-  if (hour < 12) return t.dashboard.greetingMorning;
-  if (hour < 17) return t.dashboard.greetingAfternoon;
-  return t.dashboard.greetingEvening;
+  // Pinned to Pakistan Standard Time so the server and the browser agree —
+  // an unpinned hour produced "Good evening" beside a morning timestamp.
+  const hour = Number(
+    new Intl.DateTimeFormat("en-GB", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: "Asia/Karachi",
+    }).format(new Date()),
+  );
+
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
 }
 
+const COMMON_ISSUES = [
+  { icon: TriangleAlert, label: t.dashboard.potholes },
+  { icon: Trash2, label: t.dashboard.garbage },
+  { icon: Lightbulb, label: t.dashboard.streetLight },
+  { icon: Droplets, label: t.dashboard.waterLeakage },
+];
+
 /*
- * Phase 1 dashboard shell.
+ * The citizen's home.
  *
- * The reporting entry points are shown because they are what CivicAI is for,
- * but they are visibly marked "Coming soon" rather than wired to a fake flow.
- * Nothing here submits a complaint.
+ * Reordered around one question: what has happened to the things I reported.
+ * The previous version led with three ways to file a NEW report and pushed
+ * existing ones behind a link — which is the right emphasis on day one and the
+ * wrong one every day after. Now the summary and the live reports come first,
+ * and reporting is a persistent action in the sidebar and the header.
  */
 export default async function DashboardPage() {
   const session = await requireSession();
 
   /*
-   * An authority account has no business on the citizen dashboard. Deciding
-   * here rather than in the sign-in form means it holds however they arrive —
-   * a bookmark, the proxy's redirect, or the sign-in button — instead of only
-   * on the one path that happened to be wired up.
-   *
+   * Registration must be finished before the dashboard means anything.
    * Someone who is BOTH a citizen and a department member stays here: this is
    * the account they registered, and they get a link across instead.
    */
   const landing = await resolveLanding(session.user.id);
   if (landing.redirectTo) redirect(landing.redirectTo);
 
-  const profile = await getCitizenProfile(session.user.id);
+  const [profile, summary, reports, threads] = await Promise.all([
+    getCitizenProfile(session.user.id),
+    getCitizenSummary(session.user.id),
+    listCitizenReports(session.user.id),
+    listThreadsForCitizen(session.user.id),
+  ]);
 
-  const firstName = (profile?.fullName ?? session.user.name).split(" ")[0];
+  const awaitingReply = threads.filter((thread) => thread.unreadForCitizen > 0);
+  const fullName = profile?.fullName ?? session.user.name;
+  const firstName = fullName.split(" ")[0];
 
-  const commonIssues = [
-    { icon: TriangleAlert, label: t.dashboard.potholes },
-    { icon: Trash2, label: t.dashboard.garbage },
-    { icon: Lightbulb, label: t.dashboard.streetLight },
-    { icon: Droplets, label: t.dashboard.waterLeakage },
-  ];
+  // Newest first, and only the handful worth showing on a summary screen.
+  const recent = reports.slice(0, 5);
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-5 py-5">
-      <header className="flex items-center justify-between gap-3">
-        <CivicAILogo showCountry={false} />
-      </header>
-
-      <div className="mt-7">
-        <h1 className="text-[1.5rem] font-semibold leading-tight tracking-tight text-ink">
+    <CitizenShell
+      name={fullName}
+      subtitle={profile?.city ? `${profile.city} · Citizen` : "Citizen"}
+      unreadMessages={awaitingReply.length}
+    >
+      <div className="mx-auto w-full max-w-5xl">
+        <h1 className="text-[1.5rem] font-bold leading-tight tracking-tight text-ink sm:text-[1.75rem]">
           {greeting()}, {firstName}
         </h1>
-        <p className="mt-1.5 text-[0.9375rem] text-muted">{t.dashboard.prompt}</p>
-      </div>
+        <p className="mt-1 text-[0.9375rem] text-muted">{t.dashboard.prompt}</p>
 
-      <section className="mt-6 space-y-3" aria-label={t.dashboard.navReport}>
         {/*
-          Both lead into the same real pipeline (/report starts at the
-          camera; voice is offered as a description method once the photo
-          and category are confirmed) — see camera-flow.tsx / describe-flow.tsx.
-          "Type Instead" stays a placeholder: the approved Stage 2 flow is
-          camera-first end to end, with typing as an in-flow alternative to
-          voice rather than a second, photo-less entry point.
+          A department waiting on an answer is the one thing here that blocks
+          somebody else's work, so it sits above everything rather than being
+          left to be discovered in a tab.
         */}
-        <ActionRow
-          icon={Camera}
-          tone="green"
-          title={t.dashboard.reportCamera}
-          description={t.dashboard.reportCameraBody}
-          href="/report"
-        />
-        <ActionRow
-          icon={Mic}
-          tone="blue"
-          title={t.dashboard.reportVoice}
-          description={t.dashboard.reportVoiceBody}
-          href="/report"
-        />
-        <ActionRow
-          icon={PencilLine}
-          tone="amber"
-          title={t.dashboard.reportType}
-          description={t.dashboard.reportTypeBody}
-          disabledReason={t.dashboard.comingSoonBadge}
-        />
-      </section>
+        {awaitingReply.length > 0 ? (
+          <Link
+            href="/dashboard/messages"
+            className="mt-5 flex items-center gap-3 rounded-[var(--radius-card)] border border-civic-200 bg-civic-50 px-4 py-3.5 transition-colors hover:border-civic-500 hover:bg-civic-100"
+          >
+            <MessagesSquare className="size-5 shrink-0 text-civic-700" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[0.9375rem] font-semibold text-ink">
+                {awaitingReply.length === 1
+                  ? "A department has a question for you"
+                  : `${awaitingReply.length} departments have questions for you`}
+              </span>
+              <span className="mt-0.5 block text-[0.8125rem] text-muted">
+                Answering helps them fix it faster.
+              </span>
+            </span>
+            <ArrowRight className="size-4 shrink-0 text-civic-700" aria-hidden="true" />
+          </Link>
+        ) : null}
 
-      <section className="mt-6">
-        <Card>
-          <CardBody>
-            <CardEyebrow>{t.dashboard.commonIssues}</CardEyebrow>
-            <ul className="mt-4 grid grid-cols-4 gap-2">
-              {commonIssues.map((issue) => {
-                const Icon = issue.icon;
+        {/* -- The summary ------------------------------------------------ */}
+        <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard
+            label="My reports"
+            value={summary.total}
+            hint={summary.drafts > 0 ? `${summary.drafts} still a draft` : "All submitted"}
+            icon={FileText}
+          />
+          <StatCard
+            label="Reported"
+            value={summary.reported}
+            hint="Awaiting a department"
+            valueClassName="text-status-reported"
+          />
+          <StatCard
+            label="In process"
+            value={summary.inProcess}
+            hint="Being worked on"
+            valueClassName="text-status-process"
+          />
+          <StatCard
+            label="Resolved"
+            value={summary.resolved}
+            hint="Confirmed fixed"
+            emphasis
+          />
+        </div>
+
+        {/* -- Recent reports --------------------------------------------- */}
+        <section className="mt-7">
+          <div className="mb-3 flex items-baseline justify-between gap-3">
+            <h2 className="text-[1.0625rem] font-semibold tracking-tight text-ink">
+              Your recent reports
+            </h2>
+            {reports.length > recent.length ? (
+              <Link
+                href="/dashboard/reports"
+                className="text-[0.875rem] font-medium text-civic-700 hover:underline"
+              >
+                See all {reports.length}
+              </Link>
+            ) : null}
+          </div>
+
+          {recent.length === 0 ? (
+            <EmptyState
+              icon={Camera}
+              title="Nothing reported yet"
+              body="When you report a problem, you can follow exactly what the department does about it from here."
+              action={
+                <Link
+                  href="/report"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-field)] bg-civic-600 px-5 text-[0.9375rem] font-semibold text-white transition-colors hover:bg-civic-700"
+                >
+                  <Camera className="size-4" aria-hidden="true" />
+                  Report a problem
+                </Link>
+              }
+            />
+          ) : (
+            <ul className="grid gap-3">
+              {recent.map((report) => {
+                const issue = report.issue;
+
+                /*
+                 * A report has no issue until the intake pipeline has grouped
+                 * it, so a very recent one has no code and nothing to open. It
+                 * is still listed — the citizen sent it, and it must not
+                 * appear to have vanished.
+                 */
+                const body = (
+                  <Card className="p-4 transition-colors hover:border-civic-200 sm:p-5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {issue ? (
+                        <span className="font-mono text-[0.8125rem] font-bold text-civic-700">
+                          {issue.issueCode}
+                        </span>
+                      ) : (
+                        <Badge>Being processed</Badge>
+                      )}
+                      {issue && issue.reportCount > 1 ? (
+                        <Badge tone="brand">{issue.reportCount} people reported this</Badge>
+                      ) : null}
+                      <span className="ms-auto text-[0.75rem] text-muted">
+                        {formatDate(report.submittedAt)}
+                      </span>
+                    </div>
+
+                    <p className="mt-1.5 text-[0.9375rem] font-semibold leading-snug text-ink">
+                      {issue?.title ?? report.title ?? "Your report"}
+                    </p>
+                    {report.locationLabel ? (
+                      <p className="mt-0.5 text-[0.8125rem] text-muted">{report.locationLabel}</p>
+                    ) : null}
+
+                    <div className="mt-4 max-w-sm">
+                      <StatusProgress
+                        stageName={issue?.stageName ?? null}
+                        isResolved={issue?.isResolved ?? false}
+                        size="compact"
+                      />
+                    </div>
+                  </Card>
+                );
+
                 return (
-                  <li key={issue.label} className="text-center">
-                    <span className="mx-auto flex size-12 items-center justify-center rounded-[14px] bg-canvas">
-                      <Icon className="size-5 text-civic-600" aria-hidden="true" />
-                    </span>
-                    <span className="mt-2 block text-[0.6875rem] font-medium leading-tight text-muted">
-                      {issue.label}
-                    </span>
+                  <li key={report.reportId}>
+                    {issue ? (
+                      <Link href={`/dashboard/reports/${issue.issueCode}`} className="block">
+                        {body}
+                      </Link>
+                    ) : (
+                      body
+                    )}
                   </li>
                 );
               })}
             </ul>
-          </CardBody>
-        </Card>
-      </section>
-
-      {/*
-        The two things a citizen wants after reporting: what happened to mine,
-        and is this authority any good. Both are real pages, not placeholders.
-      */}
-      {landing.role === "both" ? (
-        <section className="mt-6">
-          <ActionRow
-            icon={Building2}
-            tone="green"
-            title="Authority workspace"
-            description="You also have an authority account. Open your department."
-            href="/authority"
-          />
+          )}
         </section>
-      ) : null}
 
-      <section className="mt-6 space-y-3">
-        <ActionRow
-          icon={FileText}
-          tone="blue"
-          title="My reports"
-          description="Track progress on everything you have reported."
-          href="/dashboard/reports"
-        />
-        <ActionRow
-          icon={BarChart3}
-          tone="green"
-          title="Authority performance"
-          description="See how authorities are resolving civic issues."
-          href="/performance"
-        />
-      </section>
+        {/* -- Report something new --------------------------------------- */}
+        <section className="mt-7">
+          <h2 className="mb-3 text-[1.0625rem] font-semibold tracking-tight text-ink">
+            Report something new
+          </h2>
 
-      <section className="mt-4">
-        <Card className="border-civic-200 bg-civic-50 shadow-none">
-          <CardBody>
-            <h2 className="text-[1.0625rem] font-semibold tracking-tight text-ink">
-              {t.dashboard.notReadyTitle}
-            </h2>
-            <p className="mt-2 text-[0.9375rem] leading-relaxed text-ink/70">
-              {t.dashboard.notReadyBody}
-            </p>
-          </CardBody>
-        </Card>
-      </section>
-    </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Link
+              href="/report"
+              className="group flex items-center gap-4 rounded-[var(--radius-card)] border border-line bg-surface p-5 transition-colors hover:border-civic-500 hover:bg-civic-50/50"
+            >
+              <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-[14px] bg-civic-600 text-white">
+                <Camera className="size-5" aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[0.9375rem] font-semibold text-ink">
+                  {t.dashboard.reportCamera}
+                </span>
+                <span className="mt-0.5 block text-[0.8125rem] leading-relaxed text-muted">
+                  {t.dashboard.reportCameraBody}
+                </span>
+              </span>
+              <ArrowRight
+                className="size-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5"
+                aria-hidden="true"
+              />
+            </Link>
+
+            <Link
+              href="/report"
+              className="group flex items-center gap-4 rounded-[var(--radius-card)] border border-line bg-surface p-5 transition-colors hover:border-civic-500 hover:bg-civic-50/50"
+            >
+              <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-[14px] bg-civic-50 text-civic-700">
+                <Mic className="size-5" aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[0.9375rem] font-semibold text-ink">
+                  {t.dashboard.reportVoice}
+                </span>
+                <span className="mt-0.5 block text-[0.8125rem] leading-relaxed text-muted">
+                  {t.dashboard.reportVoiceBody}
+                </span>
+              </span>
+              <ArrowRight
+                className="size-4 shrink-0 text-muted transition-transform group-hover:translate-x-0.5"
+                aria-hidden="true"
+              />
+            </Link>
+          </div>
+
+          <Card className="mt-3 shadow-none">
+            <CardBody className="p-4 sm:p-5">
+              <CardEyebrow>{t.dashboard.commonIssues}</CardEyebrow>
+              <ul className="mt-3.5 grid grid-cols-4 gap-2">
+                {COMMON_ISSUES.map((issue) => {
+                  const Icon = issue.icon;
+                  return (
+                    <li key={issue.label} className="text-center">
+                      <span className="mx-auto flex size-11 items-center justify-center rounded-[14px] bg-canvas">
+                        <Icon className="size-5 text-civic-600" aria-hidden="true" />
+                      </span>
+                      <span className="mt-2 block text-[0.6875rem] font-medium leading-tight text-muted">
+                        {issue.label}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </CardBody>
+          </Card>
+        </section>
+
+        {/* -- Elsewhere --------------------------------------------------- */}
+        <section className="mt-7 grid gap-3 sm:grid-cols-2">
+          {landing.role === "both" ? (
+            <Link
+              href="/gov"
+              className="flex items-center gap-3 rounded-[var(--radius-card)] border border-line bg-surface p-5 transition-colors hover:border-civic-200"
+            >
+              <Building2 className="size-5 shrink-0 text-civic-700" aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[0.9375rem] font-semibold text-ink">
+                  Authority workspace
+                </span>
+                <span className="text-[0.8125rem] text-muted">
+                  You also have a department account.
+                </span>
+              </span>
+            </Link>
+          ) : null}
+
+          <Link
+            href="/performance"
+            className="flex items-center gap-3 rounded-[var(--radius-card)] border border-line bg-surface p-5 transition-colors hover:border-civic-200"
+          >
+            <BarChart3 className="size-5 shrink-0 text-civic-700" aria-hidden="true" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[0.9375rem] font-semibold text-ink">
+                Authority performance
+              </span>
+              <span className="text-[0.8125rem] text-muted">
+                How authorities are resolving civic issues.
+              </span>
+            </span>
+          </Link>
+        </section>
+      </div>
+    </CitizenShell>
   );
 }

@@ -30,5 +30,7 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  // mobile/ is a separate Expo project with its own tsconfig and its own
+  // React Native types, which conflict with the DOM types the web app needs.
+  "exclude": ["node_modules", "mobile"]
 }

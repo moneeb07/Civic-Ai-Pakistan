@@ -28,6 +28,52 @@
   --color-danger-bg: #fdf2f1;
   --color-success: #0b8f6a;
 
+  /*
+   * Status palette — the civic lifecycle, and the ONE place these three
+   * colours are defined.
+   *
+   * Deliberately separate tokens from the brand accent even though "resolved"
+   * and civic-500 are the same green today: they answer different questions.
+   * The accent says "this is CivicAI"; the status says "this issue is closed".
+   * Tying them together would mean a brand refresh silently restyled every
+   * status indicator in the product.
+   *
+   * Never used alone — lib/civic/status.ts pairs each with a label and an icon,
+   * because colour on its own fails for colour-blind users and in print.
+   *
+   * These three exact values were CHOSEN BY VALIDATION, not by eye. The obvious
+   * pairing — reusing --color-danger #b4231f for "reported" alongside a plain
+   * amber — measured a normal-vision separation of ΔE 14.2 against the amber,
+   * below the 15 floor: the two states a citizen most needs to tell apart were
+   * the two hardest to tell apart, before any colour-vision deficiency was even
+   * considered. Shifting the red toward crimson and the amber toward orange
+   * clears every check, worst adjacent pair now ΔE 20.4 normal / 8.4 protan.
+   * Re-validate before changing any of them.
+   */
+  --color-status-reported: #a81d33;
+  --color-status-reported-bg: #fdf1f3;
+  --color-status-reported-line: #f2d3d9;
+
+  --color-status-process: #c2790a;
+  --color-status-process-bg: #fdf6ea;
+  --color-status-process-line: #f0dcb8;
+
+  --color-status-resolved: #0b8f6a;
+  --color-status-resolved-bg: #eefaf5;
+  --color-status-resolved-line: #bfe9d9;
+
+  /*
+   * Deep neutral for the authority side.
+   *
+   * The government portal reads as a different surface from the citizen app —
+   * darker, denser, more instrument panel than brochure — and this is the
+   * ground it is built on. Green-biased rather than a true navy so the two
+   * halves still belong to one product.
+   */
+  --color-slate-deep: #0c1a16;
+  --color-slate-panel: #12241e;
+  --color-slate-line: #1f3a31;
+
   /* Radius — premium, not playful */
   --radius-field: 14px;
   --radius-card: 24px;
@@ -37,6 +83,9 @@
   --shadow-card: 0 1px 2px rgba(16, 35, 29, 0.04),
     0 16px 40px -20px rgba(16, 35, 29, 0.16);
   --shadow-field: 0 1px 2px rgba(16, 35, 29, 0.03);
+  /* One step above a card, for menus and dialogs that sit over content. */
+  --shadow-pop: 0 2px 4px rgba(16, 35, 29, 0.05),
+    0 24px 56px -24px rgba(16, 35, 29, 0.28);
 
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
 }

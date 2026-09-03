@@ -7,6 +7,7 @@ import {
   ImageUp,
   Loader2,
   RotateCcw,
+  ShieldCheck,
   Volume2,
   VolumeX,
   X,
@@ -17,14 +18,22 @@ import { useVoiceGuidance } from "@/components/assisted/use-voice-guidance";
 import { Button } from "@/components/ui/button";
 import {
   analyzeCnicFrame,
-  DISTANCE_BAND_MAX,
-  DISTANCE_BAND_MIN,
   type FrameIssue,
   type FrameQualityResult,
   type FrameTier,
 } from "@/lib/cnic-frame-quality";
 import { getDictionary } from "@/lib/i18n";
-import { prepareCnicImage } from "@/lib/image";
+import { prepareCnicImage, prepareCnicUpload } from "@/lib/image";
+import { captureCropFor } from "@/lib/cnic-capture-crop";
+import { qualitySignalsFrom } from "@/lib/cnic/signals";
+import {
+  CAPTURE_SETTLE_MS,
+  preScreen,
+  STABLE_FRAMES_REQUIRED,
+  type CnicSide,
+  type QualitySignals,
+  type ValidationState,
+} from "@/lib/cnic/validation";
 import { cn } from "@/lib/utils";
 
 const t = getDictionary();
@@ -51,16 +60,26 @@ type CaptureStatus =
  * ANALYSIS_INTERVAL_MS: how often the heuristics in cnic-frame-quality.ts
  *   actually run. The canvas repaints the live video every animation frame
  *   regardless — this only throttles the (slightly heavier) pixel analysis.
- * STABLE_TICKS_REQUIRED: consecutive good analyses before capture arms. At the
- *   interval above that is ~750ms of steadiness — enough that a single lucky
- *   frame can't fire the shutter, short enough that a citizen holding a
- *   readable card isn't left waiting and wondering.
+ * Stability is shared with the validator (STABLE_FRAMES_REQUIRED): consecutive
+ *   good analyses before capture arms, so a single lucky frame between two
+ *   blurred ones can never fire the shutter.
  * CAPTURE_DELAY_MS: a short pause after the guide turns green, so "CNIC looks
  *   clear. Hold still…" is actually readable before the screen changes.
  */
 const ANALYSIS_INTERVAL_MS = 150;
-const STABLE_TICKS_REQUIRED = 5;
 const CAPTURE_DELAY_MS = 400;
+
+/**
+ * How long the scanner will keep guiding before it admits it may not get there.
+ *
+ * Some cameras simply cannot resolve a CNIC — a low-resolution laptop webcam
+ * is the common one, and no amount of repositioning fixes it. Without this the
+ * citizen is left holding a card in front of a camera that will never fire,
+ * with a red border telling them to keep trying. After this long the scanner
+ * offers the gallery instead; it does not stop guiding, and auto-capture still
+ * fires the moment the frame does come good.
+ */
+const STALL_HINT_MS = 12_000;
 
 /** Internal analysis resolution — the crop is downsampled to this width regardless of camera resolution. */
 const ANALYSIS_WIDTH = 240;
@@ -91,19 +110,6 @@ const VOICE_MIN_INTERVAL_MS = 3500;
 const CNIC_ASPECT = 1.586;
 const GUIDE_WIDTH_FRACTION = 0.86;
 
-/**
- * The analysed region is this much larger than the drawn guide, in each
- * dimension.
- *
- * Without the padding the guide is exactly CNIC-shaped, so a card placed
- * PERFECTLY — filling the frame the citizen was told to fill — covers ~100% of
- * the analysed crop and touches all four of its edges. That reads as
- * "too close" and "incomplete" simultaneously: the better the citizen aims,
- * the harder it fails. Padding gives a correctly-placed card visible air on
- * every side, which is what the coverage and edge-touch checks are actually
- * looking for.
- */
-const ANALYSIS_PADDING = 1.2;
 
 /*
  * Development-only diagnostics. When the card is plainly readable but the
@@ -129,16 +135,24 @@ function guideRectFor(width: number, height: number): GuideRect {
   return { x: (width - w) / 2, y: (height - h) / 2, w, h };
 }
 
-/** The padded region actually handed to the analyser, clamped to the frame. */
-function analysisRectFor(guide: GuideRect, width: number, height: number): GuideRect {
-  const w = Math.min(width, guide.w * ANALYSIS_PADDING);
-  const h = Math.min(height, guide.h * ANALYSIS_PADDING);
-  return {
-    x: Math.max(0, Math.min(width - w, guide.x - (w - guide.w) / 2)),
-    y: Math.max(0, Math.min(height - h, guide.y - (h - guide.h) / 2)),
-    w,
-    h,
-  };
+/**
+ * The region handed to the analyser: the WHOLE frame.
+ *
+ * It used to be the guide rectangle plus 20% padding, and that was the reason
+ * a perfectly presented card was reported "incomplete". If the citizen holds
+ * the card so it fills the picture — which is exactly what you want for OCR —
+ * the card is LARGER than that crop, so it ran off all four edges of the
+ * analysed region and the edge-touch check concluded it was cut off. The card
+ * could not be made "complete" by moving it closer, only by moving it further
+ * away, which is the opposite of the advice the screen was giving.
+ *
+ * Analysing the full frame removes the ambiguity entirely: an edge touched now
+ * means the card genuinely runs out of the picture, and coverage means its
+ * share of what the camera can actually see. The drawn guide stays exactly as
+ * it is — it is an aiming aid for the citizen, not the measurement boundary.
+ */
+function analysisRectFor(_guide: GuideRect, width: number, height: number): GuideRect {
+  return { x: 0, y: 0, w: width, h: height };
 }
 
 function drawGuide(ctx: CanvasRenderingContext2D, guide: GuideRect, tier: FrameTier) {
@@ -190,6 +204,14 @@ interface CnicCaptureProps {
   previewAlt?: string;
   /** Title shown in the full-screen scanner's top bar. */
   title?: string;
+  /**
+   * Which side of the card this instance is capturing.
+   *
+   * Required by the validator, which checks a DIFFERENT set of fields per
+   * side — a back image is not expected to yield a CNIC number, and a front
+   * is not expected to yield an address.
+   */
+  side: CnicSide;
 }
 
 /*
@@ -208,6 +230,7 @@ export function CnicCapture({
   frameLabel = t.identity.frameLabel,
   previewAlt = "The CNIC photo you just took",
   title = t.identity.autoCapture.scannerTitleFront,
+  side,
 }: CnicCaptureProps) {
   const { enabled: voiceEnabled, setEnabled: setVoiceEnabled } = useAssistedMode();
   const { supported: voiceSupported, speak, stop: stopSpeaking } = useVoiceGuidance();
@@ -242,10 +265,61 @@ export function CnicCapture({
    * into the canvas — but they all read from the same analysis result, so they
    * cannot drift apart.
    */
-  const [readability, setReadability] = React.useState(0);
-  const [tier, setTier] = React.useState<FrameTier>("poor");
-  const [distance, setDistance] = React.useState(0);
-  /** Mirrors `tier` for the render loop, which runs outside React. */
+  /**
+   * True once the scanner has been open a while without capturing — the cue to
+   * offer the gallery rather than let a citizen keep trying a camera that
+   * cannot resolve their card.
+   */
+  const [stalled, setStalled] = React.useState(false);
+
+  /*
+   * The verdict on the CAPTURED image — not on a live frame.
+   *
+   * This is the gate that did not exist. Previously the preview screen offered
+   * "Use this photo" unconditionally, so a blurred capture was accepted on the
+   * strength of local heuristics that had judged a different frame entirely.
+   * Nothing may be handed to `onCaptured` until this says READABLE.
+   */
+  const [verdict, setVerdict] = React.useState<{
+    state: ValidationState;
+    score: number;
+    instruction: string;
+    unreadableFields: string[];
+    observedSide: CnicSide | null;
+  } | null>(null);
+  /*
+   * A failure to CHECK the image, kept separate from a verdict ON the image.
+   *
+   * Conflating the two told somebody holding a perfectly clear card that their
+   * card was unreadable, when the truth was that our validator never answered.
+   * The recovery is different too — a service blip needs "try again" on the
+   * same photograph, not a retake.
+   */
+  const [serviceError, setServiceError] = React.useState<string | null>(null);
+  const [validating, setValidating] = React.useState(false);
+  /** Latest local signals, sent alongside the image so the server can weigh them. */
+  const signalsRef = React.useRef<QualitySignals | null>(null);
+  /** Where the image under review came from, so a retry re-runs it identically. */
+  const sourceRef = React.useRef<"camera" | "upload">("camera");
+  /*
+   * When the card was first continuously detected.
+   *
+   * Auto-capture is not considered until CAPTURE_SETTLE_MS after this, so
+   * somebody presenting a card gets a moment to line it up rather than having
+   * the shutter fire on the way in — which is exactly how a smeared,
+   * mid-motion photograph was being taken.
+   */
+  const detectedSinceRef = React.useRef<number | null>(null);
+  /** 0–1 through the hold-still countdown, for the on-screen indicator. */
+  const [holdProgress, setHoldProgress] = React.useState(0);
+  /*
+   * The border's colour tier, held ONLY in a ref.
+   *
+   * It is read by the canvas render loop, which runs outside React on every
+   * animation frame, so mirroring it into state bought nothing and cost a
+   * re-render several times a second. Now that the readability meter and
+   * distance gauge are gone, no rendered element depends on it at all.
+   */
   const tierRef = React.useRef<FrameTier>("poor");
   /** What the assistant last said, and when — the throttle for voice guidance. */
   const lastSpokenRef = React.useRef<string | null>(null);
@@ -269,15 +343,15 @@ export function CnicCapture({
     issueRef.current = null;
     statusRef.current = "detecting";
     tierRef.current = "poor";
+    detectedSinceRef.current = null;
+    setHoldProgress(0);
+    setStalled(false);
     lastAnalysisRef.current = 0;
     lastSpokenRef.current = null;
     lastSpokeAtRef.current = 0;
     setStatus("detecting");
     setIssue(null);
     setDebug(null);
-    setReadability(0);
-    setTier("poor");
-    setDistance(0);
   }, []);
 
   // Release the camera if the citizen navigates away mid-capture.
@@ -316,6 +390,61 @@ export function CnicCapture({
     }
   }
 
+  /*
+   * The single gate. Every image — auto-captured, manually shot, or chosen
+   * from the gallery — goes through this before the preview will offer to use
+   * it. One code path, one endpoint, one set of thresholds.
+   */
+  async function runValidation(blob: Blob, source: "camera" | "upload") {
+    sourceRef.current = source;
+    setValidating(true);
+    setVerdict(null);
+    setServiceError(null);
+
+    const form = new FormData();
+    form.append("image", blob, "cnic.jpg");
+    form.append("side", side);
+    /*
+     * Local pixel signals belong to a CAMERA capture and to nothing else.
+     *
+     * They are measured from the live frame the shutter fired on. An uploaded
+     * file has no such frame — and the ref still holds whatever the camera
+     * last saw, which was very likely a poor frame, since a poor frame is why
+     * somebody reaches for the gallery in the first place. Sending those along
+     * scored a pristine uploaded photograph against the statistics of a bad
+     * webcam frame and rejected it with a camera instruction: "Move the CNIC
+     * closer to the camera", on a file upload.
+     *
+     * The server already handles absent signals correctly, scoring on the
+     * model's own confidence. So an upload sends none, full stop.
+     */
+    if (source === "camera" && signalsRef.current) {
+      form.append("signals", JSON.stringify(signalsRef.current));
+    }
+
+    try {
+      const response = await fetch("/api/cnic/validate", { method: "POST", body: form });
+      const payload = await response.json();
+
+      if (!payload.success) {
+        /*
+         * The check did not happen. That is OUR failure, not a fault in the
+         * photograph, and it must never be reported as one — the image is
+         * still not accepted (no verdict means no way forward), but the
+         * citizen is told the truth and offered a retry on the same picture.
+         */
+        setServiceError(payload.message ?? t.errors.unexpected);
+        return;
+      }
+
+      setVerdict(payload.data);
+    } catch {
+      setServiceError(t.errors.network);
+    } finally {
+      setValidating(false);
+    }
+  }
+
   async function capture() {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0) return;
@@ -323,10 +452,34 @@ export function CnicCapture({
     captureInFlightRef.current = true;
     setBusy(true);
     try {
+      /*
+       * Upload the CARD, not the whole frame.
+       *
+       * The guide is drawn on the display canvas, so the crop has to be mapped
+       * back through the same cover-crop into source-video pixels — the
+       * geometry lives in lib/cnic-capture-crop.ts where it can be tested.
+       *
+       * This matters most for the back: spending the whole resolution budget
+       * on the card instead of on the desk around it is what makes the small
+       * Urdu address print legible to the model at all.
+       */
+      const displayCanvas = canvasRef.current;
+      const display = {
+        width: displayCanvas?.width ?? video.videoWidth,
+        height: displayCanvas?.height ?? video.videoHeight,
+      };
+      const crop = captureCropFor(
+        guideRectFor(display.width, display.height),
+        display,
+        { width: video.videoWidth, height: video.videoHeight },
+      );
+
       const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext("2d")?.drawImage(video, 0, 0);
+      canvas.width = crop.w;
+      canvas.height = crop.h;
+      canvas
+        .getContext("2d")
+        ?.drawImage(video, crop.x, crop.y, crop.w, crop.h, 0, 0, crop.w, crop.h);
 
       const raw = await new Promise<Blob | null>((resolve) =>
         canvas.toBlob(resolve, "image/jpeg", 0.95),
@@ -336,6 +489,7 @@ export function CnicCapture({
       const prepared = await prepareCnicImage(raw);
       stopCamera();
       setPreview({ blob: prepared.blob, dataUrl: prepared.dataUrl });
+      await runValidation(prepared.blob, "camera");
     } catch {
       setError(t.errors.unexpected);
     } finally {
@@ -507,17 +661,43 @@ export function CnicCapture({
           const result = analyzeCnicFrame(imageData);
 
           /*
-           * One decision point. Status, border, message and auto-capture all
-           * flow from this single assignment — nothing downstream re-derives
-           * readiness for itself.
+           * The live frame is scored on the SAME axes the server uses, through
+           * the shared signal mapping. Previously this loop had its own private
+           * notion of "ready" — a set of deliberately permissive pass/fail
+           * checks — and nothing ever reconciled it with what the model would
+           * later think of the photograph. A frame is now only "ready" when it
+           * clears the same numeric bar the captured image will have to clear.
            */
-          const next: CaptureStatus = result.ready
+          const signals = qualitySignalsFrom(result);
+          signalsRef.current = signals;
+          const screen = preScreen(signals);
+
+          /*
+           * ONE decision, and the score makes it.
+           *
+           * This used to require `result.ready` as well — every one of the
+           * analyser's pass/fail checks, tilt included. That double-counted:
+           * tilt, lighting and glare are ALREADY graded into the score through
+           * the perspective, lighting and glareFree signals, so a card the
+           * score rated 80 could still be held back by a binary tilt check
+           * that had failed on the same frame. The visible symptom was a GREEN
+           * border with the shutter refusing to fire and the caption reading
+           * "Please straighten the CNIC" — the interface disagreeing with
+           * itself, and the citizen left pressing the button by hand.
+           *
+           * Only one structural fact is now disqualifying on its own: no card
+           * in the picture. Everything else is a matter of degree, and degrees
+           * are what the score is for.
+           */
+          const frameReady = result.checks.detected && screen.tier === "green";
+
+          const next: CaptureStatus = frameReady
             ? statusRef.current === "capturing"
               ? "capturing"
               : "ready"
-            : result.issue === "no_card"
-              ? "not_detected"
-              : "need_adjustment";
+            : result.checks.detected
+              ? "need_adjustment"
+              : "not_detected";
 
           if (next !== statusRef.current) {
             statusRef.current = next;
@@ -534,17 +714,47 @@ export function CnicCapture({
            * tierRef is what the border reads (it repaints every animation
            * frame, outside React); the state below is what the DOM reads.
            */
-          tierRef.current = result.tier;
-          setTier(result.tier);
-          setReadability(result.readability);
-          setDistance(result.distance);
+          /*
+           * The border follows `frameReady`, not the score on its own, so it
+           * physically cannot show green while the shutter is being held.
+           */
+          tierRef.current = frameReady
+            ? "acceptable"
+            : screen.tier === "red"
+              ? "poor"
+              : "improving";
 
           if (SHOW_DEBUG) setDebug(result);
 
-          if (result.ready) {
+          // The settle clock starts when a card first appears and resets the
+          // moment it leaves, so it measures presence, not time on screen.
+          if (result.checks.detected) {
+            detectedSinceRef.current ??= Date.now();
+          } else {
+            detectedSinceRef.current = null;
+          }
+
+          const settledMs = detectedSinceRef.current
+            ? Date.now() - detectedSinceRef.current
+            : 0;
+          const settled = settledMs >= CAPTURE_SETTLE_MS;
+
+          /*
+           * Progress through the hold, shown on screen so the capture is never
+           * a surprise. Somebody who can see the ring filling knows to keep
+           * still; somebody who cannot has no idea the photo is imminent.
+           */
+          setHoldProgress(
+            frameReady && settled
+              ? Math.min(1, streakRef.current / STABLE_FRAMES_REQUIRED)
+              : 0,
+          );
+
+          if (frameReady) {
             streakRef.current += 1;
             if (
-              streakRef.current >= STABLE_TICKS_REQUIRED &&
+              settled &&
+              streakRef.current >= STABLE_FRAMES_REQUIRED &&
               statusRef.current !== "capturing"
             ) {
               statusRef.current = "capturing";
@@ -557,13 +767,31 @@ export function CnicCapture({
               }, CAPTURE_DELAY_MS);
             }
           } else {
-            streakRef.current = 0;
+            /*
+             * A bad frame DECAYS the hold; it does not erase it.
+             *
+             * Resetting to zero was unreachable in practice. A hand-held card
+             * flickers below the bar for a single frame all the time — a
+             * blink of autofocus, a breath, one compressed video frame — and
+             * with a hard reset every one of those restarted the whole
+             * 1.8-second run, so the count never finished and the shutter
+             * never fired however steady the person was being.
+             *
+             * Decaying by two costs more than a good frame earns, so genuine
+             * instability still drives the count down to nothing quickly,
+             * while an isolated blip only sets it back a fraction.
+             */
+            streakRef.current = Math.max(0, streakRef.current - 2);
 
             // Quality slipped mid-hold: stand the capture down and go back to
             // guiding, rather than taking the photo we already promised.
             if (captureTimeoutRef.current !== null) {
               window.clearTimeout(captureTimeoutRef.current);
               captureTimeoutRef.current = null;
+              if (statusRef.current === "capturing") {
+                statusRef.current = "ready";
+                setStatus("ready");
+              }
             }
           }
         }
@@ -597,6 +825,20 @@ export function CnicCapture({
     // (and reopen the camera-session timing) on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cameraState, disabled]);
+
+  /*
+   * The stall timer.
+   *
+   * Runs only while the camera is actually live and no photo has been taken —
+   * it must never fire behind the preview, where the citizen already has their
+   * image and an offer to upload a different one would be nonsense.
+   */
+  React.useEffect(() => {
+    if (cameraState !== "live" || preview) return;
+
+    const timer = window.setTimeout(() => setStalled(true), STALL_HINT_MS);
+    return () => window.clearTimeout(timer);
+  }, [cameraState, preview]);
 
   /*
    * Voice guidance during capture.
@@ -657,9 +899,15 @@ export function CnicCapture({
     setError(null);
 
     try {
-      const prepared = await prepareCnicImage(file);
+      const prepared = await prepareCnicUpload(file);
       stopCamera();
       setPreview({ blob: prepared.blob, dataUrl: prepared.dataUrl });
+      /*
+       * A gallery image runs the SAME validation as a camera capture. The
+       * previous behaviour ran none at all on this path, which is why uploads
+       * behaved differently from the camera for no defensible reason.
+       */
+      await runValidation(prepared.blob, "upload");
     } catch {
       setError("We couldn't read that image. Please try another photo.");
     } finally {
@@ -667,10 +915,38 @@ export function CnicCapture({
     }
   }
 
+  /*
+   * The hidden file input, mounted by EVERY branch below.
+   *
+   * It used to be rendered only in the idle branch. The preview and the
+   * full-screen scanner both `return` before that markup, so while either was
+   * on screen the input did not exist — `fileInputRef.current` was null and
+   * every "Upload CNIC" button in those branches did precisely nothing when
+   * pressed. Nothing threw and nothing logged; the click was simply swallowed,
+   * which is why it looked like the button was dead.
+   *
+   * `capture="environment"` asks a phone for its rear camera but is ignored by
+   * desktop browsers, which show the normal file picker — so one input serves
+   * both "take a photo" and "choose from gallery".
+   */
+  const fileInput = (
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept="image/jpeg,image/png,image/webp"
+      capture="environment"
+      onChange={handleFile}
+      className="sr-only"
+      tabIndex={-1}
+      aria-hidden="true"
+    />
+  );
+
   // -- Preview: confirm or retake -------------------------------------------
   if (preview) {
     return (
       <ScannerShell title={title} onCancel={() => setPreview(null)}>
+        {fileInput}
         <div className="flex flex-1 items-center justify-center overflow-hidden px-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -681,6 +957,77 @@ export function CnicCapture({
         </div>
 
         <footer className="bg-black px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+          {/*
+            The verdict on THIS photograph, not on the frame that triggered the
+            shutter. Until it comes back READABLE there is no way forward from
+            this screen — which is the entire fix.
+          */}
+          {validating ? (
+            <div
+              className="mb-3 flex items-center gap-2.5 rounded-[14px] bg-white/10 px-4 py-3"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 className="size-4 shrink-0 animate-spin text-white" aria-hidden="true" />
+              <p className="text-[0.8125rem] font-medium text-white">
+                Checking the picture is readable…
+              </p>
+            </div>
+          ) : serviceError ? (
+            <div
+              className="mb-3 rounded-[14px] border border-white/25 bg-white/10 px-4 py-3"
+              role="alert"
+            >
+              <p className="flex items-center gap-2 text-[0.875rem] font-semibold text-white">
+                <CircleAlert className="size-4 shrink-0" aria-hidden="true" />
+                We couldn&rsquo;t check this picture
+              </p>
+              <p className="mt-1 text-[0.8125rem] leading-relaxed text-white/75">
+                {serviceError} There is nothing wrong with your photo — this is our
+                connection, not your CNIC.
+              </p>
+            </div>
+          ) : verdict && verdict.state !== "READABLE" ? (
+            <div
+              className="mb-3 rounded-[14px] border border-[#e8615c]/40 bg-[#e8615c]/15 px-4 py-3"
+              role="alert"
+            >
+              <p className="flex items-center gap-2 text-[0.875rem] font-semibold text-white">
+                <CircleAlert className="size-4 shrink-0" aria-hidden="true" />
+                {verdict.state === "NOT_A_CNIC"
+                  ? "That doesn't look like a CNIC"
+                  : "Picture is not readable"}
+              </p>
+              <p className="mt-1 text-[0.8125rem] leading-relaxed text-white/80">
+                {verdict.instruction || "Please retake the picture."}
+              </p>
+
+              {/*
+                Naming the fields that failed turns a refusal into instructions.
+                "Not readable" alone leaves somebody retaking the same photo.
+              */}
+              {verdict.unreadableFields.length > 0 ? (
+                <p className="mt-1.5 text-[0.75rem] text-white/60">
+                  Could not read: {verdict.unreadableFields.join(", ")}
+                </p>
+              ) : null}
+
+              {verdict.observedSide && verdict.observedSide !== side ? (
+                <p className="mt-1.5 text-[0.75rem] font-medium text-white/80">
+                  This looks like the {verdict.observedSide} of the card. Please show the{" "}
+                  {side}.
+                </p>
+              ) : null}
+            </div>
+          ) : verdict?.state === "READABLE" ? (
+            <div className="mb-3 flex items-center gap-2.5 rounded-[14px] bg-[#35c896]/15 px-4 py-3">
+              <ShieldCheck className="size-4 shrink-0 text-[#8fe8c9]" aria-hidden="true" />
+              <p className="text-[0.8125rem] font-medium text-white">
+                Readable — quality {verdict.score}%.
+              </p>
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-2.5 sm:flex-row">
             <Button
               variant="secondary"
@@ -689,6 +1036,7 @@ export function CnicCapture({
                 // Straight back to the viewfinder rather than out to the card
                 // screen — a retake is a continuation, not a restart.
                 setPreview(null);
+                setVerdict(null);
                 void startCamera();
               }}
               disabled={disabled}
@@ -696,9 +1044,37 @@ export function CnicCapture({
               <RotateCcw className="size-4" aria-hidden="true" />
               {t.identity.retake}
             </Button>
-            <Button size="full" onClick={() => onCaptured(preview)} disabled={disabled}>
-              {t.identity.usePhoto}
-            </Button>
+
+            {/*
+              Only offered once the image has actually passed. There is no
+              "continue anyway": an unreadable card cannot be made readable by
+              insisting, and letting it through is how a wrong digit reaches
+              somebody's identity record.
+            */}
+            {verdict?.state === "READABLE" ? (
+              <Button size="full" onClick={() => onCaptured(preview)} disabled={disabled}>
+                {t.identity.usePhoto}
+              </Button>
+            ) : serviceError ? (
+              <Button
+                size="full"
+                onClick={() => void runValidation(preview.blob, sourceRef.current)}
+                disabled={disabled || validating}
+              >
+                <RotateCcw className="size-4" aria-hidden="true" />
+                Check again
+              </Button>
+            ) : (
+              <Button
+                size="full"
+                onClick={() => fileInputRef.current?.click()}
+                variant="secondary"
+                disabled={disabled || validating}
+              >
+                <ImageUp className="size-4" aria-hidden="true" />
+                {t.identity.upload}
+              </Button>
+            )}
           </div>
         </footer>
       </ScannerShell>
@@ -710,13 +1086,12 @@ export function CnicCapture({
     /*
      * Everything below reads from `status`, `tier` and `readability`, all of
      * which come from one analysis result. The border colour, the percentage,
-     * the gauge and the instruction can no longer contradict each other,
+     * the border and the instruction can no longer contradict each other,
      * because they are no longer independent derivations of "is this frame
      * good" — a stale "CNIC is too far" over a green border was exactly that
      * bug.
      */
     const ready = status === "ready" || status === "capturing";
-    const displayTier: FrameTier = ready ? "acceptable" : tier;
 
     // Exactly one message at a time: a short neutral line until the first
     // analysis lands, then whichever single issue matters most, then the
@@ -736,6 +1111,7 @@ export function CnicCapture({
 
     return (
       <ScannerShell title={title} onCancel={cancelScanner}>
+        {fileInput}
         {/*
           One instruction, in the same place every time. The reference banking
           flow puts this directly under the title bar rather than floating it
@@ -749,7 +1125,7 @@ export function CnicCapture({
           {instruction}
         </p>
 
-        <div className="relative flex-1 overflow-hidden">
+        <div className="relative min-h-[46vh] flex-1 overflow-hidden sm:min-h-[52vh]">
           {/* The real frame source. Kept in normal layout (not display:none) so
               mobile browsers keep decoding it, but never shown directly — the
               canvas below draws the composited, annotated frame instead. */}
@@ -764,23 +1140,102 @@ export function CnicCapture({
               drawing, so the guide can never be cropped off the sides. */}
           <canvas ref={canvasRef} className="h-full w-full" />
 
-          {live ? <DistanceGauge value={distance} tier={displayTier} /> : null}
-        </div>
-
-        <footer className="bg-black px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
-          <ReadabilityMeter
-            value={live ? readability : 0}
-            tier={displayTier}
-            active={live && status !== "detecting"}
-          />
-
-          {SHOW_DEBUG ? (
-            <div className="mt-3 rounded-[14px] bg-white p-1">
-              <FrameDebugPanel result={debug} status={status} />
+          {/*
+            The hold-still countdown.
+            
+            Shown only once the frame is genuinely good and the settle period
+            has passed, so it appears exactly when the shutter is about to
+            arm — the visible warning that the previous behaviour lacked
+            entirely, which is why capture felt sudden and caught the card
+            mid-movement.
+          */}
+          {holdProgress > 0 ? (
+            <div
+              className="pointer-events-none absolute inset-x-0 bottom-4 flex justify-center"
+              role="status"
+              aria-live="polite"
+            >
+              <span className="flex items-center gap-2.5 rounded-full bg-black/70 px-4 py-2 backdrop-blur">
+                <span
+                  aria-hidden="true"
+                  className="relative block size-4 rounded-full border-2 border-white/30"
+                >
+                  <span
+                    className="absolute inset-0 rounded-full border-2 border-[#35c896] transition-[clip-path] duration-150"
+                    style={{
+                      // Fills clockwise as the hold completes.
+                      clipPath: `inset(${(1 - holdProgress) * 100}% 0 0 0)`,
+                    }}
+                  />
+                </span>
+                <span className="text-[0.8125rem] font-semibold text-white">
+                  Hold still — capturing…
+                </span>
+              </span>
             </div>
           ) : null}
 
-          <div className="mt-4 flex items-center gap-3">
+        </div>
+
+        <footer className="bg-black px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
+          {/*
+            The scanner deliberately shows the card and ONE instruction, and
+            nothing else. It used to carry a live readability percentage and a
+            distance gauge beside the frame; both were accurate and both were
+            noise. A citizen holding a card up to a camera is looking at the
+            card, and a number counting toward a threshold invites them to
+            optimise a figure rather than just position the card the way the
+            frame is already showing them. The border colour and the single
+            line above the frame carry the same information without asking
+            anyone to read a dashboard.
+          */}
+          {/*
+            Development diagnostics, collapsed to a single line.
+            
+            This used to render a full pass/fail table that took most of the
+            screen, squeezing the viewfinder into a letterbox strip — with the
+            result that there was nowhere left to actually put the card. The
+            detail is still available, behind a disclosure, for the one person
+            who needs it.
+          */}
+          {SHOW_DEBUG && debug ? (
+            <details className="mb-3 rounded-[12px] bg-white/10 px-3 py-1.5">
+              <summary className="cursor-pointer text-[0.6875rem] font-medium text-white/60">
+                Debug · score {preScreen(qualitySignalsFrom(debug)).score} ·{" "}
+                {debug.issue ?? "ok"}
+              </summary>
+              <div className="mt-2 rounded-[10px] bg-white p-1">
+                <FrameDebugPanel result={debug} status={status} />
+              </div>
+            </details>
+          ) : null}
+
+          {/*
+            The way out, offered by the scanner itself once auto-capture has
+            plainly not been able to lock on. A laptop webcam that cannot
+            resolve the card, or a card that will not fit the frame, is not
+            something a citizen can fix by holding it differently for longer.
+          */}
+          {stalled ? (
+            <div className="mb-4 rounded-[16px] border border-white/20 bg-white/10 px-4 py-3">
+              <p className="text-[0.8125rem] font-semibold text-white">
+                {t.identity.autoCapture.stalledTitle}
+              </p>
+              <p className="mt-1 text-[0.75rem] leading-relaxed text-white/75">
+                {t.identity.autoCapture.stalledBody}
+              </p>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-2.5 inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-field)] bg-white px-4 text-[0.8125rem] font-semibold text-ink transition-colors hover:bg-white/90"
+              >
+                <ImageUp className="size-4" aria-hidden="true" />
+                {t.identity.upload}
+              </button>
+            </div>
+          ) : null}
+
+          <div className="flex items-center gap-3">
             {voiceSupported ? (
               <button
                 type="button"
@@ -824,6 +1279,8 @@ export function CnicCapture({
   // -- Idle / denied / unavailable ------------------------------------------
   return (
     <div className="space-y-4">
+      {fileInput}
+
       {cameraState === "denied" || cameraState === "unavailable" ? (
         <div
           role="alert"
@@ -894,16 +1351,6 @@ export function CnicCapture({
         </Button>
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        capture="environment"
-        onChange={handleFile}
-        className="sr-only"
-        tabIndex={-1}
-        aria-hidden="true"
-      />
     </div>
   );
 }
@@ -952,118 +1399,6 @@ function ScannerShell({
       </header>
 
       {children}
-    </div>
-  );
-}
-
-/**
- * The far/close gauge down the side of the viewfinder.
- *
- * A percentage tells someone their photo is poor; it does not tell them which
- * way to move. The gauge does — it is the one control on this screen that maps
- * a problem directly onto a physical action, which is why it is worth the
- * space beside the frame.
- *
- * The lit band is drawn at DISTANCE_BAND_MIN..MAX, the exact coordinates the
- * analyser maps its acceptable coverage range onto, so "marker inside the green
- * ticks" and "distance check passes" are guaranteed to be the same statement.
- */
-const GAUGE_TICKS = 15;
-
-function DistanceGauge({ value, tier }: { value: number; tier: FrameTier }) {
-  return (
-    <div
-      className="pointer-events-none absolute inset-y-0 start-0 flex w-[4.5rem] flex-col items-center justify-between bg-gradient-to-r from-black/65 to-transparent py-5"
-      role="img"
-      aria-label={t.identity.autoCapture.gaugeLabel}
-    >
-      <span className="text-[0.5625rem] font-bold tracking-[0.14em] text-white/70">
-        {t.identity.autoCapture.gaugeFar}
-      </span>
-
-      <div className="relative my-3 w-full flex-1">
-        {Array.from({ length: GAUGE_TICKS }, (_, index) => {
-          const at = index / (GAUGE_TICKS - 1);
-          const inBand = at >= DISTANCE_BAND_MIN && at <= DISTANCE_BAND_MAX;
-
-          return (
-            <span
-              key={index}
-              style={{ top: `${at * 100}%` }}
-              className={cn(
-                "absolute start-1/2 h-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full transition-colors duration-200",
-                inBand ? "w-7 bg-civic-500" : "w-4 bg-white/35",
-              )}
-            />
-          );
-        })}
-
-        {/* The marker takes its colour from the same tier the border does. */}
-        <span
-          style={{ top: `${value * 100}%`, color: TIER_COLOURS[tier] }}
-          className="absolute start-0 -translate-y-1/2 text-[0.875rem] leading-none transition-[top] duration-150"
-          aria-hidden="true"
-        >
-          ▶
-        </span>
-      </div>
-
-      <span className="text-[0.5625rem] font-bold tracking-[0.14em] text-white/70">
-        {t.identity.autoCapture.gaugeClose}
-      </span>
-    </div>
-  );
-}
-
-/**
- * The live readability meter.
- *
- * Labelled "Readability" and footnoted, on purpose. This number describes the
- * photograph — whether text can plausibly be resolved from it — and says
- * nothing about whether the details read off it will be correct. Presenting it
- * as an accuracy figure would be a claim CivicAI cannot make until Gemini has
- * actually read the card, and even then only per field.
- */
-function ReadabilityMeter({
-  value,
-  tier,
-  active,
-}: {
-  value: number;
-  tier: FrameTier;
-  active: boolean;
-}) {
-  return (
-    <div>
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-[0.6875rem] font-semibold uppercase tracking-[0.14em] text-white/55">
-          {t.identity.autoCapture.readability}
-        </span>
-        <span className="text-[0.8125rem] font-semibold text-white">
-          {active ? `${value}% · ${t.identity.autoCapture.tiers[tier]}` : "—"}
-        </span>
-      </div>
-
-      <div
-        role="progressbar"
-        aria-valuenow={active ? value : 0}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-label={t.identity.autoCapture.readability}
-        className="mt-2 h-2 overflow-hidden rounded-full bg-white/15"
-      >
-        <div
-          style={{
-            width: `${active ? value : 0}%`,
-            backgroundColor: TIER_COLOURS[tier],
-          }}
-          className="h-full rounded-full transition-[width,background-color] duration-200"
-        />
-      </div>
-
-      <p className="mt-1.5 text-[0.6875rem] leading-relaxed text-white/45">
-        {t.identity.autoCapture.readabilityNote}
-      </p>
     </div>
   );
 }

@@ -112,10 +112,12 @@ export interface FrameQualityResult {
  * a bad read. Being strict HERE just stops citizens from getting a photo
  * taken at all, which protects nobody.
  *
- * The analysis crop is padded wider than the on-screen guide (see
- * ANALYSIS_PADDING in cnic-capture.tsx), so a card that neatly fills the
- * guide sits at roughly 70% coverage here with clear air on every side.
- * The coverage band below is set around that.
+ * The analysed region is the WHOLE camera frame, not the drawn guide, so
+ * coverage below means the card's share of everything the camera can see and
+ * an edge touched means the card genuinely runs out of the picture. Measuring
+ * inside the guide instead made a card that filled the frame — the ideal case
+ * for OCR — report as "incomplete", because it overflowed the crop on all
+ * four sides.
  */
 
 const NO_CARD_COVERAGE_MAX = 0.05;
@@ -611,6 +613,152 @@ function distancePosition(coverageRatio: number): number {
  * before lighting nuance, since there is no point telling someone about glare
  * on a card that isn't even in frame yet.
  */
+/*
+ * Is the foreground actually shaped like a CNIC?
+ *
+ * This exists because "detected" used to mean nothing more than "more than 5%
+ * of the frame differs from the background" — which a face in front of a wall
+ * satisfies completely. The camera duly turned green on a person's head and
+ * photographed it, having never once asked whether it was looking at a card.
+ *
+ * A CNIC is geometrically distinctive in two ways that are cheap to measure
+ * and that a head, a hand or a torso fails:
+ *
+ *   ASPECT — ID-1 format is 85.6 × 54mm, so 1.586:1 landscape. A head is
+ *   roughly square, or taller than it is wide.
+ *
+ *   FILL — a card is a solid rectangle, so the foreground fills nearly all of
+ *   its own bounding box. A head is a rounded blob with gaps at the corners
+ *   and falls well short.
+ *
+ * Both come from the bounding box of the foreground mask, which costs one pass
+ * over data already computed. This is a shape heuristic, not document
+ * recognition — the model still decides whether it is genuinely a CNIC — but
+ * it is the difference between refusing to photograph somebody's face and
+ * cheerfully doing so.
+ */
+export interface CardShape {
+  /** Width ÷ height of the foreground's bounding box, or null when empty. */
+  aspect: number | null;
+  /** Foreground pixels as a fraction of that bounding box. Cards approach 1. */
+  fill: number;
+  /** True when both the aspect and the fill are card-like, in isolation. */
+  cardLike: boolean;
+  /**
+   * True unless the foreground is clearly PORTRAIT — a person, not a card.
+   *
+   * This is what live detection uses, because the mask contains the hand as
+   * well as the card. See the note in measureCardShape.
+   */
+  plausiblyLandscape: boolean;
+}
+
+/*
+ * ASPECT is the discriminator; FILL is only a sanity floor.
+ *
+ * That split is not the obvious one, and the arithmetic is worth recording,
+ * because the intuitive design is wrong. "A card fills its bounding box, a
+ * rounded head does not" holds only for a card lying perfectly square to the
+ * lens. Tilt it and the axis-aligned bounding box grows fast:
+ *
+ *     tilt    aspect   fill
+ *      0°      1.59    1.00
+ *     10°      1.38    0.73
+ *     15°      1.30    0.64
+ *     20°      1.24    0.58
+ *     30°      1.13    0.51
+ *
+ * An ellipse, meanwhile, fills π/4 ≈ 0.785 of its box at ANY rotation. So a
+ * card tilted more than about 10° fills LESS of its box than a head does —
+ * the test inverts, and any fill threshold strict enough to exclude a head
+ * would reject most real hand-held cards.
+ *
+ * Aspect does the work instead: a face is 0.6–0.85 (taller than wide), a card
+ * is 1.13–1.59 across the whole tilt range. The bands below take 30° of tilt.
+ * Fill is kept only to reject wispy, fragmented foregrounds that are not a
+ * single solid object at all.
+ *
+ * The known gap, stated plainly: a head turned fully sideways is landscape and
+ * would pass this shape gate. Nothing here recognises documents — that is the
+ * model's job, and it is asked explicitly whether the image is a Pakistani
+ * CNIC. This gate exists to stop the CAMERA firing at a face, which it did.
+ */
+const CARD_ASPECT_MIN = 1.08;
+const CARD_ASPECT_MAX = 2.4;
+/** A loose floor for "one solid object", not a card-versus-head test. */
+const CARD_FILL_MIN = 0.45;
+
+/**
+ * Below this aspect the foreground is taller than it is wide — a person, not a
+ * card being held up.
+ *
+ * Set just under square. A hand holding a card horizontally still produces a
+ * landscape blob; a face and torso produce a decidedly portrait one. Anything
+ * stricter starts rejecting real hands, which is exactly the failure this
+ * replaced.
+ */
+const PORTRAIT_REJECT_MAX = 0.95;
+
+export function measureCardShape(
+  mask: Uint8Array,
+  width: number,
+  height: number,
+): CardShape {
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+  let count = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (mask[y * width + x] === 0) continue;
+      count++;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+  }
+
+  // Nothing in the frame at all: no shape, and nothing to be plausible about.
+  if (maxX < 0 || count === 0) {
+    return { aspect: null, fill: 0, cardLike: false, plausiblyLandscape: false };
+  }
+
+  const boxWidth = maxX - minX + 1;
+  const boxHeight = maxY - minY + 1;
+  const aspect = boxWidth / boxHeight;
+  const fill = count / (boxWidth * boxHeight);
+
+  return {
+    aspect,
+    fill,
+    cardLike:
+      aspect >= CARD_ASPECT_MIN && aspect <= CARD_ASPECT_MAX && fill >= CARD_FILL_MIN,
+    /*
+     * The weaker test, and the one detection actually uses.
+     *
+     * `cardLike` above describes an ISOLATED card, and that is not what the
+     * foreground mask contains. classifyForeground marks every pixel differing
+     * from the background colour — so the blob is the card PLUS the hand
+     * holding it, plus a sleeve, plus anything else in shot. Requiring that
+     * combination to be a clean 1.586:1 filled rectangle is impossible to
+     * satisfy in real use: it made `detected` permanently false, which zeroed
+     * documentConfidence, tripped the prerequisite cap, and pinned the guide
+     * to red at every distance.
+     *
+     * What CAN be said reliably about a mask containing a hand and a card is
+     * that it is wider than it is tall. A person filling the frame — the case
+     * this whole check exists for, after the camera photographed somebody's
+     * face — is the opposite: distinctly portrait. So detection rejects clear
+     * portrait blobs and accepts the rest, leaving the model to decide whether
+     * it is genuinely a CNIC.
+     */
+    plausiblyLandscape: aspect >= PORTRAIT_REJECT_MAX,
+  };
+}
+
 export function analyzeCnicFrame(buffer: RgbaBuffer): FrameQualityResult {
   const { data, width, height } = buffer;
   const pixelCount = width * height;
@@ -645,6 +793,7 @@ export function analyzeCnicFrame(buffer: RgbaBuffer): FrameQualityResult {
     (edge) => edgeTouchFraction(mask, width, height, edge) > EDGE_TOUCH_FRACTION,
   ).length;
 
+  const shape = measureCardShape(mask, width, height);
   const tiltDegrees = estimateTiltDegrees(mask, width, height);
   const sharpness = estimateSharpness(data, width, height);
   const textDetail = estimateTextDetail(data, width, height, mask);
@@ -665,7 +814,12 @@ export function analyzeCnicFrame(buffer: RgbaBuffer): FrameQualityResult {
    * whole picture to answer "the card looks fine, so what is objecting?".
    */
   const checks: FrameChecks = {
-    detected: coverageRatio >= NO_CARD_COVERAGE_MAX,
+    /*
+     * Detection requires a card SHAPE, not merely a foreground blob. Coverage
+     * on its own accepted a face, a hand, or anything else large enough to
+     * differ from the wall behind it — and then photographed it.
+     */
+    detected: coverageRatio >= NO_CARD_COVERAGE_MAX && shape.plausiblyLandscape,
     distance:
       coverageRatio >= TOO_FAR_COVERAGE_MAX && coverageRatio <= TOO_CLOSE_COVERAGE_MIN,
     complete: edgeTouchCount < INCOMPLETE_MIN_EDGES,

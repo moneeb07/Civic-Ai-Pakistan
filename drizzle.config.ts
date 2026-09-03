@@ -12,7 +12,7 @@ export default defineConfig({
    * file so that branch can be merged without touching the citizen-side
    * schema. drizzle-kit unions everything it is given here.
    */
-  schema: ["./src/db/schema.ts", "./src/db/authority/schema.ts"],
+  schema: ["./src/db/schema.ts", "./src/db/gov/collaboration.ts"],
   out: "./drizzle",
   dbCredentials: {
     url: process.env.DATABASE_URL ?? "postgres://localhost:5432/civicai",

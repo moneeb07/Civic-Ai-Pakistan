@@ -6,7 +6,7 @@ import { formatDateTime } from "@/lib/civic/format-date";
 import { StatusProgress } from "@/components/civic/status-progress";
 import { requireSession } from "@/lib/session";
 import { getCitizenIssue } from "@/lib/civic/tracking";
-import { categoryLabel, STATUS_LABELS, normaliseIssueCode } from "@/lib/authority/schema";
+import { categoryLabel, normaliseIssueCode } from "@/lib/gov/issue-schema";
 
 export const dynamic = "force-dynamic";
 
@@ -62,13 +62,13 @@ export default async function CitizenIssuePage({
       </header>
 
       <section className="mt-6 rounded-[20px] border border-line bg-surface p-5">
-        <StatusProgress status={issue.status} />
+        <StatusProgress stageName={issue.stageName ?? null} isResolved={issue.isResolved} />
 
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <Fact label="Category">{categoryLabel(issue.category)}</Fact>
           <Fact label="Handled by">
             {issue.departmentName
-              ? `${issue.departmentName} · ${issue.authorityName}`
+              ? `${issue.departmentName} · ${issue.orgName}`
               : "Awaiting assignment"}
           </Fact>
           <Fact label="Location" icon={<MapPin className="size-3" />}>
@@ -97,7 +97,8 @@ export default async function CitizenIssuePage({
           {issue.timeline.map((entry, index) => (
             <li key={index} className="border-s-2 border-line ps-3">
               <p className="text-[0.875rem] font-medium text-ink">
-                {STATUS_LABELS[entry.status] ?? entry.status}
+                {entry.stageName}
+                {entry.isTerminal ? " · complete" : null}
               </p>
               <p className="text-[0.75rem] text-muted">{formatDateTime(entry.at)}</p>
             </li>

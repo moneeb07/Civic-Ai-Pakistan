@@ -6,6 +6,7 @@ import {
   transcriptionResultSchema,
   type TranscriptionResult,
 } from "@/lib/report/schema";
+import { GEMINI_MODEL } from "@/services/gemini/model";
 
 /*
  * Speech-to-text for a spoken complaint description.
@@ -19,7 +20,6 @@ import {
  * this app promises to preserve exactly what was said, not approximate it.
  */
 
-const MODEL = "gemini-3.6-flash";
 
 const PROMPT = `You are transcribing an audio recording of a Pakistani citizen describing a civic problem out loud — a pothole, garbage, a broken streetlight, or similar.
 
@@ -67,7 +67,7 @@ class GeminiSpeechToTextProvider implements SpeechToTextProvider {
     let rawText: string | undefined;
     try {
       const response = await client.models.generateContent({
-        model: MODEL,
+        model: GEMINI_MODEL,
         contents: [
           {
             role: "user",

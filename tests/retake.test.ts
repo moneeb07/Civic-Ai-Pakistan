@@ -25,41 +25,105 @@ describe("planRetake", () => {
 
   // -- Scenario A: front good, back bad --------------------------------
   it("Scenario A — a back-only failure retakes BACK and keeps FRONT", () => {
-    assert.deepEqual(planRetake("back", both), { retake: "back", keeps: "front" });
+    assert.deepEqual(planRetake("back", both), {
+      retake: "back",
+      keeps: "front",
+      discards: ["back"],
+    });
   });
 
   // -- Scenario B: front bad, back good --------------------------------
   it("Scenario B — a front-only failure retakes FRONT and keeps BACK", () => {
-    assert.deepEqual(planRetake("front", both), { retake: "front", keeps: "back" });
+    assert.deepEqual(planRetake("front", both), {
+      retake: "front",
+      keeps: "back",
+      discards: ["front"],
+    });
   });
 
   // -- Scenario D: extraction blames a specific side -------------------
   it("routes a critical front-field failure (name/CNIC) to the front, keeping the back", () => {
     // The gate reports critical_field_unclear as affectedSide "front" —
     // this is that signal reaching the retake plan.
-    assert.deepEqual(planRetake("front", both), { retake: "front", keeps: "back" });
+    assert.deepEqual(planRetake("front", both), {
+      retake: "front",
+      keeps: "back",
+      discards: ["front"],
+    });
   });
 
   it("routes an unreadable-address failure to the back, keeping the front", () => {
     // The gate reports address_unclear as affectedSide "back".
-    assert.deepEqual(planRetake("back", both), { retake: "back", keeps: "front" });
+    assert.deepEqual(planRetake("back", both), {
+      retake: "back",
+      keeps: "front",
+      discards: ["back"],
+    });
+  });
+
+  // -- Both sides explicitly bad ----------------------------------------
+  /*
+   * The regression this file exists for.
+   *
+   * When the model reports BOTH images unreadable, keeping the back meant the
+   * citizen was sent to the front camera, their new front was immediately
+   * re-submitted against the same unreadable back, and the read failed in
+   * exactly the same way — with the back camera never shown again. The address
+   * is printed on the back, so the symptom a citizen actually reported was
+   * "it only asks for the front the second time, and the address never works".
+   */
+  it('"both" discards BOTH photos so the citizen re-walks front and back', () => {
+    assert.deepEqual(planRetake("both", both), {
+      retake: "front",
+      keeps: null,
+      discards: ["front", "back"],
+    });
+  });
+
+  it('never re-uses the stale back after a "both" verdict', () => {
+    const plan = planRetake("both", both);
+    assert.equal(plan.keeps, null, "a back the model called unreadable must not be kept");
+    assert.ok(
+      plan.discards.includes("back"),
+      "the unreadable back must be discarded, or the retry re-submits it",
+    );
+  });
+
+  it('"both" with only a front on file still just retakes the front', () => {
+    assert.deepEqual(planRetake("both", { front: true, back: false }), {
+      retake: "front",
+      keeps: null,
+      discards: ["front"],
+    });
   });
 
   // -- Ambiguous / unknown ----------------------------------------------
-  it('treats "both" as the honest fallback: front first, back still kept', () => {
-    assert.deepEqual(planRetake("both", both), { retake: "front", keeps: "back" });
+  /*
+   * "unknown" is a different claim from "both": the model said nothing about
+   * either side, rather than condemning both. Discarding a back on the
+   * strength of an absence of evidence would make a citizen re-photograph a
+   * side that was never implicated.
+   */
+  it('treats "unknown" as the honest fallback: front first, back still kept', () => {
+    assert.deepEqual(planRetake("unknown", both), {
+      retake: "front",
+      keeps: "back",
+      discards: ["front"],
+    });
   });
 
-  it("treats a missing signal (older shape, or genuinely no answer) the same as \"both\"", () => {
-    assert.deepEqual(planRetake(null, both), { retake: "front", keeps: "back" });
-    assert.deepEqual(planRetake(undefined, both), { retake: "front", keeps: "back" });
+  it("treats a missing signal (older shape, or genuinely no answer) as unknown", () => {
+    const expected = { retake: "front", keeps: "back", discards: ["front"] };
+    assert.deepEqual(planRetake(null, both), expected);
+    assert.deepEqual(planRetake(undefined, both), expected);
   });
 
   // -- Never re-uses a photo that was never captured ---------------------
   it("keeps nothing when only the front was ever photographed", () => {
-    assert.deepEqual(planRetake("both", { front: true, back: false }), {
+    assert.deepEqual(planRetake("unknown", { front: true, back: false }), {
       retake: "front",
       keeps: null,
+      discards: ["front"],
     });
   });
 
@@ -72,21 +136,64 @@ describe("planRetake", () => {
     assert.deepEqual(planRetake("back", { front: false, back: true }), {
       retake: "front",
       keeps: "back",
+      discards: [],
     });
   });
 
-  it("never discards a good back over an ambiguous verdict", () => {
-    const plan = planRetake("both", both);
-    assert.equal(plan.keeps, "back", "an existing back must survive an ambiguous retry");
+  it("never discards a good back over an unknown verdict", () => {
+    const plan = planRetake("unknown", both);
+    assert.equal(plan.keeps, "back", "an unimplicated back must survive an unknown verdict");
+    assert.deepEqual(plan.discards, ["front"]);
+  });
+
+  // -- The plan is always self-consistent -------------------------------
+  /*
+   * Property check across every input combination: a kept side is never also
+   * discarded, and a side that is neither kept nor discarded never exists —
+   * because that is exactly the state the original bug lived in. The caller
+   * holds the blobs, so a plan that leaves a photo unaccounted for is a plan
+   * that can be half-applied.
+   */
+  it("never both keeps and discards a side, and accounts for every photo on file", () => {
+    const verdicts = ["front", "back", "both", "unknown", null, undefined] as const;
+    const files = [
+      { front: true, back: true },
+      { front: true, back: false },
+      { front: false, back: true },
+      { front: false, back: false },
+    ];
+
+    for (const verdict of verdicts) {
+      for (const onFile of files) {
+        const plan = planRetake(verdict, onFile);
+        const label = `${String(verdict)} / front=${onFile.front} back=${onFile.back}`;
+
+        if (plan.keeps) {
+          assert.ok(
+            !plan.discards.includes(plan.keeps),
+            `${label}: kept side is also discarded`,
+          );
+          assert.ok(onFile[plan.keeps], `${label}: kept a photo that was never taken`);
+        }
+
+        for (const side of ["front", "back"] as const) {
+          if (!onFile[side]) {
+            assert.ok(
+              !plan.discards.includes(side),
+              `${label}: discards a photo that does not exist`,
+            );
+            continue;
+          }
+          assert.ok(
+            plan.keeps === side || plan.discards.includes(side),
+            `${label}: ${side} is on file but neither kept nor discarded`,
+          );
+        }
+      }
+    }
   });
 });
 
-/*
- * "Do not trap the user in an endless scan loop." A citizen whose CNIC keeps
- * failing the accuracy gate must be offered manual entry PROMINENTLY, not
- * left to notice a quiet link on their own — but not on the very first
- * attempt either, where it would just be noise ahead of the camera.
- */
 describe("shouldOfferManualFallback", () => {
   it("stays quiet on a single failure", () => {
     assert.equal(shouldOfferManualFallback(1, false), false);

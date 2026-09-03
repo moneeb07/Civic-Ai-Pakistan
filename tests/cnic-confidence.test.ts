@@ -236,18 +236,33 @@ describe("evaluateExtractionConfidence — affectedSide from per-side readabilit
     assert.equal(result.affectedSide, "back");
   });
 
-  it('reports "both" when neither side is specifically implicated', () => {
+  it('reports "both" when the model condemns BOTH images explicitly', () => {
     const result = evaluateExtractionConfidence(
       goodRead({ readable: false, frontReadable: false, backReadable: false }),
     );
     assert.equal(result.affectedSide, "both");
   });
 
-  it('reports "both" — never a guess — when the model gives no per-side signal at all', () => {
+  /*
+   * "unknown" and "both" must not be the same verdict, and merging them was a
+   * real defect. "both" is a positive claim that neither photo is worth
+   * keeping, and the retake plan acts on it by discarding both. Reaching that
+   * conclusion from an ABSENCE of any per-side signal would throw away a photo
+   * the model never complained about.
+   */
+  it('reports "unknown" — never "both" — when the model gives no per-side signal at all', () => {
     const result = evaluateExtractionConfidence(
       goodRead({ readable: false, frontReadable: null, backReadable: null }),
     );
-    assert.equal(result.affectedSide, "both");
+    assert.equal(result.affectedSide, "unknown");
+  });
+
+  it('reports "unknown" when both sides were explicitly reported READABLE', () => {
+    // The read failed for some other reason; neither image is implicated.
+    const result = evaluateExtractionConfidence(
+      goodRead({ confidence: 0.4, frontReadable: true, backReadable: true }),
+    );
+    assert.equal(result.affectedSide, "unknown");
   });
 
   it("does not let a good back mask a bad front on the low_confidence path too", () => {

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Camera, MapPin, TriangleAlert, Users } from "lucide-react";
 
 import { StatusProgress } from "@/components/civic/status-progress";
-import { categoryLabel } from "@/lib/authority/schema";
+import { categoryLabel } from "@/lib/gov/issue-schema";
 import { formatDate } from "@/lib/civic/format-date";
 import type { TrackedReport } from "@/lib/civic/tracking";
 
@@ -58,8 +58,16 @@ export function TrackedReportCard({ report }: { report: TrackedReport }) {
 
       {issue ? (
         <>
+          {/*
+            The department's own stage name, not a generic label: each
+            department defines its own workflow, so the citizen is told exactly
+            what the people handling it call the step they are on.
+          */}
           <div className="mt-4">
-            <StatusProgress status={issue.status} />
+            <StatusProgress
+              stageName={issue.stageName}
+              isResolved={issue.isResolved}
+            />
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.75rem] text-muted">
@@ -71,7 +79,7 @@ export function TrackedReportCard({ report }: { report: TrackedReport }) {
             ) : null}
             {issue.departmentName ? (
               <span>
-                {issue.departmentName} · {issue.authorityName}
+                {issue.departmentName} · {issue.orgName}
               </span>
             ) : (
               <span>Awaiting department assignment</span>

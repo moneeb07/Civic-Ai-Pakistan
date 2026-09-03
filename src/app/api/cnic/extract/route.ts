@@ -4,14 +4,11 @@ import {
   CnicExtractionError,
   extractCnicFromImages,
   isGeminiConfigured,
-  type CnicAddressParts,
 } from "@/services/gemini/cnic-extractor";
 import { formatCnic, isValidCnicFormat, maskCnic } from "@/lib/cnic";
-import {
-  ADDRESS_CONFIDENCE_MIN,
-  evaluateExtractionConfidence,
-  type GateFailure,
-} from "@/lib/cnic-confidence";
+import { ADDRESS_CONFIDENCE_MIN, type GateFailure } from "@/lib/cnic-confidence";
+import { type SideFailure } from "@/lib/cnic-side-check";
+import { decideExtraction } from "@/lib/cnic-decision";
 import { getOrCreateRegistrationSession } from "@/lib/registration/session";
 
 /*
@@ -32,47 +29,31 @@ const ACCEPTED = new Set(["image/jpeg", "image/png", "image/webp"]);
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * An address block is only passed on when the back was actually photographed
- * AND the model was confident about what it read there. A block that fails
- * either test is dropped entirely rather than shown with a caveat — the
- * citizen types their address on the Address step instead, which is a correct
- * outcome, where a half-read Urdu line silently becomes a wrong one.
- */
-function readableAddress(parts: CnicAddressParts | null, backScanned: boolean) {
-  if (!parts || !backScanned) return null;
-  if (parts.confidence < ADDRESS_CONFIDENCE_MIN) return null;
-
-  return {
-    raw: parts.raw,
-    houseNumber: parts.houseNumber,
-    streetOrMohalla: parts.streetOrMohalla,
-    sector: parts.sector,
-    district: parts.district,
-    city: parts.city,
-    roman: parts.roman,
-    confidence: parts.confidence,
-  };
-}
-
-/** Whether the model returned anything at all for an address block. */
-function addressHasContent(parts: CnicAddressParts | null): boolean {
-  if (!parts) return false;
-  return [
-    parts.raw,
-    parts.houseNumber,
-    parts.streetOrMohalla,
-    parts.sector,
-    parts.district,
-    parts.city,
-  ].some((field) => Boolean(field));
-}
-
 /*
  * One message per gate failure. Every one of them names something the citizen
  * can actually change — never "extraction failed", which tells them nothing
  * and leaves them retaking the same bad photo.
  */
+
+/*
+ * The wrong-side messages.
+ *
+ * Each one says which side is in front of the camera and what to physically do
+ * about it. "Please retake the image" — the old catch-all — is useless here:
+ * the photo was perfectly sharp, it was just of the wrong half of the card,
+ * and a citizen told to retake it will take the same wrong photo again.
+ */
+const SIDE_MESSAGES: Record<SideFailure, string> = {
+  front_is_back:
+    "That looks like the back of your CNIC. Please turn the card over and show the side with your photograph on it.",
+  back_is_front:
+    "That's the front of your CNIC again. Please turn the card over — the address is printed on the other side.",
+  same_side_twice:
+    "Both photos show the same side of your CNIC. Please photograph the other side too.",
+  sides_swapped:
+    "The two photos are the wrong way round — the front and back have been swapped. Let's take them again: start with the side that has your photograph on it.",
+};
+
 const GATE_MESSAGES: Record<GateFailure, string> = {
   unreadable:
     "I can't read the CNIC clearly. Please adjust the lighting, distance, or position and try again.",
@@ -157,6 +138,8 @@ export async function POST(request: Request) {
       backBytes && backFile ? { bytes: backBytes, mimeType: backFile.type } : undefined,
     );
 
+    const backScanned = Boolean(backFile);
+
     /*
      * Gemini's output is untrusted. A number that is not CNIC-shaped is dropped
      * rather than shown to the citizen as if it had been read successfully.
@@ -165,51 +148,68 @@ export async function POST(request: Request) {
     const cnicIsValid = rawCnic ? isValidCnicFormat(rawCnic) : false;
     const cnicNumber = cnicIsValid ? formatCnic(rawCnic!) : null;
 
-    const backScanned = Boolean(backFile);
-
-    const values = {
-      fullName: extraction.fullName,
-      fatherName: extraction.fatherName,
-      cnicNumber,
-      dateOfBirth: extraction.dateOfBirth,
-      dateOfIssue: extraction.dateOfIssue,
-      dateOfExpiry: extraction.dateOfExpiry,
-      gender: extraction.gender,
-      nationality: extraction.nationality,
-    };
-
     /*
-     * The accuracy gate. Nothing below this point is allowed to show the
-     * citizen a value the model was not sure of — a failure here sends them
-     * back to the camera with a specific reason instead.
+     * The entire decision — which side is in the photo, whether the values are
+     * safe to show, and what became of the address — lives in
+     * lib/cnic-decision.ts as one pure function, so the ORDER of those checks
+     * (which is load-bearing) is provable without a Gemini key or a session.
      */
-    const gate = evaluateExtractionConfidence({
+    const decision = decideExtraction({
       readable: extraction.readable,
       frontReadable: extraction.frontReadable,
       backReadable: extraction.backReadable,
+      frontImageSide: extraction.frontImageSide,
+      backImageSide: extraction.backImageSide,
       confidence: extraction.confidence,
       fieldConfidence: extraction.fieldConfidence,
-      values,
+      values: {
+        fullName: extraction.fullName,
+        fatherName: extraction.fatherName,
+        cnicNumber,
+        dateOfBirth: extraction.dateOfBirth,
+        dateOfIssue: extraction.dateOfIssue,
+        dateOfExpiry: extraction.dateOfExpiry,
+        gender: extraction.gender,
+        nationality: extraction.nationality,
+      },
       backScanned,
-      addressBlocks: [extraction.presentAddress, extraction.permanentAddress].map(
-        (block) => ({
-          hasContent: addressHasContent(block),
-          confidence: block?.confidence ?? 0,
-        }),
-      ),
+      presentAddress: extraction.presentAddress,
+      permanentAddress: extraction.permanentAddress,
+      addressConfidenceMin: ADDRESS_CONFIDENCE_MIN,
     });
 
-    if (!gate.pass) {
-      const failure = gate.failure ?? "low_confidence";
+    if (decision.kind === "wrong_side") {
+      return NextResponse.json(
+        {
+          success: false,
+          reason: "wrong_side",
+          sideFailure: decision.failure,
+          /*
+           * Only the offending photo is discarded — a good front is never
+           * thrown away because the back was the wrong side. The exception is
+           * a swap, where neither photo is in the right slot and "both" is the
+           * honest answer.
+           */
+          affectedSide: decision.retakeBoth ? "both" : decision.retake,
+          message: SIDE_MESSAGES[decision.failure],
+        },
+        { status: 422 },
+      );
+    }
+
+    if (decision.kind === "rejected") {
       return NextResponse.json(
         {
           success: false,
           reason: "low_confidence",
-          gateFailure: failure,
-          // Which physical side to retake — spec: independent front/back
-          // retry. "both" when the read genuinely does not distinguish them.
-          affectedSide: gate.affectedSide ?? "both",
-          message: GATE_MESSAGES[failure],
+          gateFailure: decision.failure,
+          /*
+           * Which physical side to retake. "both" means the model condemned
+           * both images and neither photo is worth keeping; "unknown" means it
+           * implicated neither, so the client keeps what it has.
+           */
+          affectedSide: decision.affectedSide,
+          message: GATE_MESSAGES[decision.failure],
         },
         { status: 422 },
       );
@@ -220,7 +220,7 @@ export async function POST(request: Request) {
      * returned but was unsure about is blanked here — the citizen sees an
      * empty box to fill in, never a plausible-looking wrong value.
      */
-    const accepted = new Set(gate.acceptedFields);
+    const accepted = new Set(decision.acceptedFields);
     const keep = <T,>(field: string, value: T): T | null =>
       accepted.has(field) ? value : null;
 
@@ -247,14 +247,21 @@ export async function POST(request: Request) {
         confidence: extraction.confidence,
         // Which fields actually came off the card AND cleared the bar —
         // drives the "From CNIC" badges.
-        extractedFields: gate.acceptedFields,
+        extractedFields: decision.acceptedFields,
         /** Fields read but withheld for low confidence, so the UI can say so. */
-        withheldFields: gate.droppedFields,
+        withheldFields: decision.droppedFields,
         // True only when the number is CNIC-shaped. NOT a claim of authenticity.
         cnicFormatChecked: cnicIsValid,
-        presentAddress: readableAddress(extraction.presentAddress, backScanned),
-        permanentAddress: readableAddress(extraction.permanentAddress, backScanned),
+        presentAddress: decision.presentAddress,
+        permanentAddress: decision.permanentAddress,
         backScanned,
+        /*
+         * "available" | "partial" | "unreadable" | "not_printed", plus the
+         * flag the UI must act on. The citizen is never left with an
+         * unexplained blank address.
+         */
+        addressOutcome: decision.addressOutcome,
+        addressNeedsManualEntry: decision.addressNeedsManualEntry,
       },
     });
   } catch (error) {

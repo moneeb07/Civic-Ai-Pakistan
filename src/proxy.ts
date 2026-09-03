@@ -37,9 +37,42 @@ export function proxy(request: NextRequest) {
     }
   }
 
+  /*
+   * Government portal (added by the gov ticket).
+   *
+   * Kept as its own list rather than folded into PROTECTED_PREFIXES because
+   * the redirect target differs: an officer with no session belongs at
+   * /gov/login, not at the citizen sign-in page. /gov/login and
+   * /gov/invite/[token] are absent on purpose — an invited officer has no
+   * account yet, let alone a session.
+   *
+   * Optimistic only, exactly like the checks above: the authoritative guard is
+   * requireOfficer() in src/lib/gov/session.ts, which verifies the session
+   * against the database AND that the user has an officer record at all.
+   */
+  if (GOV_PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+    if (!hasSessionCookie) {
+      return NextResponse.redirect(new URL("/gov/login", request.url));
+    }
+  }
+
   return NextResponse.next();
 }
 
+const GOV_PROTECTED_PREFIXES = [
+  "/gov/admin",
+  "/gov/org",
+  "/gov/dept",
+  "/gov/work",
+  "/gov/complaints",
+];
+
 export const config = {
-  matcher: ["/dashboard/:path*", "/home/:path*", "/auth/sign-in", "/auth/sign-up"],
+  matcher: [
+    "/dashboard/:path*",
+    "/home/:path*",
+    "/auth/sign-in",
+    "/auth/sign-up",
+    "/gov/:path*",
+  ],
 };

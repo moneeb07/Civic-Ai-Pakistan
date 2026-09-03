@@ -198,6 +198,15 @@ export const en = {
       gaugeFar: "TOO FAR",
       gaugeClose: "TOO CLOSE",
       gaugeLabel: "Distance from your CNIC",
+      /*
+       * Shown inside the scanner once auto-capture has plainly failed to lock
+       * on. Names the most likely cause honestly — a laptop webcam often
+       * cannot resolve the small print on a CNIC at all — so a citizen stops
+       * blaming their own aim and takes the route that will actually work.
+       */
+      stalledTitle: "Still can't get a clear view",
+      stalledBody:
+        "Laptop webcams often can't resolve the small print on a CNIC. You can take the photo with your phone and upload it instead — the result is usually much better.",
 
       /*
        * Wording for the live score. It is deliberately "Readability" and never
@@ -282,6 +291,23 @@ export const en = {
     permanentAddressFound: "We also found a permanent address on the back of your CNIC.",
     addressNotFound:
       "We couldn't find an address on the back — you'll enter it in the next steps.",
+    /*
+     * The address outcomes. Each one names what actually happened and what the
+     * citizen can do about it — a blank address with no explanation was the
+     * single most confusing thing this screen could show.
+     */
+    addressUnreadableTitle: "We couldn't read the address",
+    addressUnreadableBody:
+      "The back of your card was photographed, but the address on it wasn't clear enough to read. This is common with a laptop webcam, or when part of the card falls outside the frame. Retake the back, or type your address in yourself — both work equally well.",
+    addressPartialTitle: "We only read part of the address",
+    addressPartialBody:
+      "Some of the address came through, but not enough to deliver a report to. Please retake the back of the card, or complete the address yourself on the next step.",
+    addressMissingTitle: "No address yet",
+    addressMissingBody:
+      "You haven't scanned the back of your CNIC, which is where the address is printed. Scan it now, or enter your address by hand — neither will hold up your registration.",
+    addressEnterManually: "I'll type my address",
+    addressManualNoted:
+      "No problem — you'll enter your address on the Address step, in a moment.",
     addressLowConfidence:
       "The address on the back was hard to read. Please check it carefully on the next screen.",
     presentAddressTitle: "Present address",
@@ -619,6 +645,249 @@ export const en = {
       no_card: "Apna CNIC frame ke andar rakhein.",
       unreadable: "CNIC saaf nahi parha ja raha. Position aur roshni theek karein.",
       ready: "CNIC readable hai. Ab tasveer li ja rahi hai.",
+    },
+  },
+
+  /*
+   * Government portal.
+   *
+   * One new top-level key; nothing above is touched. Every string the officer
+   * pages render comes from here, the same rule the citizen side follows, so
+   * adding Urdu later is a translation job rather than a hunt through JSX.
+   */
+  gov: {
+    portalName: "CivicAI Government Portal",
+
+    roles: {
+      platform_admin: "Platform administrator",
+      org_head: "Organization head",
+      dept_head: "Department head",
+      member: "Field member",
+    },
+
+    login: {
+      title: "Government sign in",
+      subtitle: "For authorised government officers only.",
+      emailLabel: "Official email address",
+      emailPlaceholder: "you@department.gov.pk",
+      passwordLabel: "Password",
+      passwordPlaceholder: "Enter your password",
+      submit: "Sign In",
+      submitting: "Signing you in…",
+      forgotPassword: "Forgot password?",
+      forgotPasswordHint: "Contact your administrator",
+      noAccess: "This account has no government access.",
+      invalid: "That email or password is not correct.",
+      noSignUp: "Government accounts are created by invitation only.",
+    },
+
+    invite: {
+      acceptTitle: "Accept your invitation",
+      acceptSubtitle: "Set a password to activate your government account.",
+      grantsEyebrow: "This invitation grants",
+      emailLabel: "Email address",
+      roleLabel: "Role",
+      orgLabel: "Organization",
+      deptLabel: "Department",
+      expiresLabel: "Expires",
+      nameLabel: "Full name",
+      namePlaceholder: "Your full name",
+      passwordLabel: "Create a password",
+      passwordPlaceholder: "At least 8 characters",
+      confirmPasswordLabel: "Confirm password",
+      confirmPasswordPlaceholder: "Re-enter your password",
+      submit: "Activate Account",
+      submitting: "Setting up your account…",
+      invalidTitle: "This invitation link isn't valid",
+      invalidBody:
+        "The link may have been mistyped. Ask whoever invited you to send a new one.",
+      expiredTitle: "This invitation has expired",
+      expiredBody:
+        "Invitations are valid for seven days. Ask whoever invited you to send a new one.",
+      usedTitle: "This invitation has already been used",
+      usedBody: "An account already exists for this invitation. Try signing in instead.",
+      backToLogin: "Go to sign in",
+
+      manageTitle: "Invitations",
+      manageSubtitle: "Invite people into your part of the portal.",
+      inviteEmailLabel: "Email address",
+      inviteEmailPlaceholder: "officer@department.gov.pk",
+      inviteRoleLabel: "Role",
+      inviteOrgLabel: "Organization",
+      inviteDeptLabel: "Department",
+      send: "Send Invitation",
+      sending: "Sending…",
+      sent: "Invitation sent.",
+      sentTerminal: "Invitation created. The link was printed to the server console.",
+      revoke: "Revoke",
+      revoked: "Invitation revoked.",
+      pendingEyebrow: "Pending invitations",
+      noPendingTitle: "No pending invitations",
+      noPendingBody: "People you invite will appear here until they accept.",
+      expiresOn: "Expires",
+      rateLimited: "You've sent the maximum number of invitations this hour. Try again later.",
+      alreadyInvited: "There is already a pending invitation for this address.",
+      notPermitted: "You cannot invite someone to that role.",
+    },
+
+    admin: {
+      title: "Platform administration",
+      subtitle: "Organizations on CivicAI, and who leads them.",
+      orgsEyebrow: "Organizations",
+      createOrgTitle: "Add an organization",
+      orgNameLabel: "Organization name",
+      orgNamePlaceholder: "Capital Development Authority",
+      orgCodeLabel: "Short code",
+      orgCodePlaceholder: "CDA",
+      orgCodeHint: "Capital letters and digits, e.g. CDA. Shown instead of an id.",
+      createOrg: "Create Organization",
+      creating: "Creating…",
+      orgCreated: "Organization created.",
+      duplicateCode: "That short code is already in use.",
+      departmentCount: "departments",
+      noOrgsTitle: "No organizations yet",
+      noOrgsBody:
+        "Create the first government body, then invite its head to take it over.",
+    },
+
+    org: {
+      title: "Organization",
+      subtitle: "Your departments, and complaints waiting to be routed.",
+      deptsEyebrow: "Departments",
+      createDeptTitle: "Add a department",
+      deptNameLabel: "Department name",
+      deptNamePlaceholder: "Roads & Infrastructure",
+      deptCategoriesLabel: "Handles these complaint types",
+      createDept: "Create Department",
+      deptCreated: "Department created.",
+      duplicateDept: "A department with that name already exists here.",
+      noDeptsTitle: "No departments yet",
+      noDeptsBody:
+        "Add the units that actually resolve complaints, then invite a head for each.",
+      workflowReady: "Workflow defined",
+      workflowMissing: "No workflow yet",
+
+      inboxEyebrow: "Waiting to be routed",
+      noInboxTitle: "Nothing waiting",
+      noInboxBody:
+        "Complaints citizens have confirmed will appear here for you to send to a department.",
+      routeTo: "Route to department",
+      route: "Route",
+      routing: "Routing…",
+      routed: "Complaint routed.",
+      aiSuggestionUnavailable: "Automatic routing isn't available yet — choose a department.",
+    },
+
+    dept: {
+      title: "Department",
+      subtitle: "Complaints routed to your department.",
+      queueEyebrow: "Queue",
+      teamEyebrow: "Team",
+      noQueueTitle: "No complaints assigned yet",
+      noQueueBody:
+        "New complaints from citizens will appear here after they're routed by your organization head.",
+      noTeamTitle: "No team members yet",
+      noTeamBody: "Invite members so complaints can be assigned to someone.",
+      assignTo: "Assign to",
+      assign: "Assign",
+      assigning: "Assigning…",
+      assigned: "Complaint assigned.",
+      unassigned: "Not assigned",
+      needsWorkflow: "Define a workflow before assigning complaints.",
+      openWorkflow: "Define workflow",
+      needsAttention: "Needs attention",
+      lowRating: "Rated poorly by the citizen",
+      reopen: "Reopen",
+      reopening: "Reopening…",
+      reopened: "Complaint reopened.",
+      reopenConfirmTitle: "Reopen this complaint?",
+      reopenConfirmBody:
+        "It goes back to the first stage of the workflow. The citizen is not notified again.",
+      confirm: "Reopen complaint",
+      cancel: "Cancel",
+    },
+
+    workflow: {
+      title: "Resolution workflow",
+      subtitle:
+        "The stages every complaint in your department moves through, in order.",
+      templateBadge: "Template — please review",
+      templateNote:
+        "These are suggested stages. Change them to match how your department actually works, then save.",
+      stageName: "Stage name",
+      stageNamePlaceholder: "e.g. Site inspection",
+      stageDescription: "Description (optional)",
+      stageDescriptionPlaceholder: "What happens at this stage",
+      requiresPhoto: "Requires photo",
+      requiresNote: "Requires note",
+      slaLabel: "Target time",
+      slaSuffix: "hours",
+      slaPlaceholder: "—",
+      terminalLabel: "This is the resolved stage",
+      addStage: "+ Add stage",
+      deleteStage: "Delete stage",
+      moveUp: "Move up",
+      moveDown: "Move down",
+      save: "Save changes",
+      saving: "Saving…",
+      saved: "Workflow saved.",
+      unsaved: "Unsaved changes",
+      noChanges: "No changes",
+      cannotDeleteLastTerminal: "Every workflow needs one resolved stage.",
+      cannotDeleteLastActive: "Keep at least one stage before the resolved stage.",
+      stageCount: "stages",
+    },
+
+    complaint: {
+      title: "Complaint",
+      detailsEyebrow: "What the citizen reported",
+      timelineEyebrow: "Progress",
+      historyEyebrow: "Activity",
+      noTitle: "Untitled complaint",
+      noDescription: "No description was provided.",
+      categoryLabel: "Type",
+      severityLabel: "Severity",
+      locationLabel: "Location",
+      submittedLabel: "Submitted",
+      assignedLabel: "Assigned to",
+      stageLabel: "Current stage",
+      resolvedBadge: "Resolved",
+      overdue: "Overdue",
+      dueIn: "Target",
+      advanceTitle: "Move to the next stage",
+      photoUrlLabel: "Photo link",
+      photoUrlPlaceholder: "https://…",
+      photoRequired: "This stage requires a photo before it can be completed.",
+      noteLabel: "Note",
+      notePlaceholder: "What was done at this stage",
+      noteRequired: "This stage requires a note before it can be completed.",
+      advance: "Complete Stage",
+      advancing: "Saving…",
+      advanced: "Stage completed.",
+      resolvedNotice: "This complaint is resolved. The citizen has been notified.",
+      requirementsUnmet: "Add what this stage requires before completing it.",
+      ratingEyebrow: "Citizen rating",
+      ratingStars: "out of 5",
+      noRating: "The citizen hasn't rated this yet.",
+      notStarted: "This complaint hasn't been assigned to anyone yet.",
+    },
+
+    common: {
+      signOut: "Sign Out",
+      back: "Back",
+      loading: "Loading…",
+      tryAgain: "Try again",
+      errorTitle: "Something went wrong",
+      errorBody: "We couldn't complete that. Try again, and quote the code below if it keeps happening.",
+      unexpectedError: "Something went wrong. Please try again.",
+      notFound: "Not found.",
+      forbidden: "You don't have access to that.",
+      signInRequired: "Please sign in.",
+      comingSoon: "Coming soon",
+      required: "This field is required.",
+      optional: "Optional",
+      none: "None",
+      selectPlaceholder: "Choose…",
     },
   },
 } as const;

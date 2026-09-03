@@ -19,7 +19,23 @@ export interface PreparedImage {
 
 async function loadBitmap(file: Blob): Promise<ImageBitmap | HTMLImageElement> {
   if (typeof createImageBitmap === "function") {
-    return createImageBitmap(file);
+    /*
+     * `imageOrientation: "from-image"` applies the EXIF rotation tag.
+     *
+     * Without it — the previous behaviour — a photograph taken in portrait on
+     * a phone decodes at its raw sensor orientation, which is landscape with a
+     * rotation flag the decoder ignored. The card then arrives at the model
+     * rotated 90°, and a sideways CNIC reads as unreadable text. That is the
+     * gallery-upload rejection: the image was fine, we were sending it on its
+     * side. The camera path never hit it because a live video frame carries no
+     * EXIF to ignore.
+     */
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch {
+      // Older engines reject the options object rather than ignoring it.
+      return createImageBitmap(file);
+    }
   }
 
   // Safari fallback.
@@ -75,14 +91,42 @@ async function encode(
 }
 
 /**
- * A CNIC image for extraction.
+ * A CNIC image captured by the camera.
  *
- * Kept at a long edge of 1600px: small enough to upload quickly, large enough
- * that the printed serial and dates stay legible to the model.
+ * A long edge of 1800px at high quality. The camera path crops to the card
+ * before this runs (lib/cnic-capture-crop.ts), so nearly every one of those
+ * pixels lands on the card itself rather than on the desk around it — which is
+ * what makes the smallest print on the card, the Urdu address on the back,
+ * legible to the model.
+ *
+ * The quality figure is deliberately high for a photograph of this size: JPEG
+ * artefacts land hardest on exactly the thin, high-contrast strokes that Urdu
+ * diacritics are made of, and a smudged diacritic is a field the accuracy gate
+ * then throws away.
  */
 export async function prepareCnicImage(file: Blob): Promise<PreparedImage> {
   const bitmap = await loadBitmap(file);
-  return encode(bitmap, 1600, 0.9, "image/jpeg");
+  return encode(bitmap, 1800, 0.92, "image/jpeg");
+}
+
+/**
+ * A CNIC image chosen from the gallery.
+ *
+ * Kept substantially larger than the camera path, and the reason is geometry
+ * rather than generosity. A camera capture is cropped to the guide, so the
+ * card fills the frame; an uploaded photograph is whatever the person shot,
+ * and the card might occupy a third of it. Downscaling both to the same long
+ * edge leaves the uploaded card at a fraction of the resolution — small enough
+ * that the Urdu address stops resolving, which reads downstream as "not
+ * readable" for an image that was perfectly good.
+ *
+ * 2600px keeps a card occupying a third of the frame at roughly the same
+ * on-card resolution a cropped capture gets, and the file is still far smaller
+ * than the 8MB original.
+ */
+export async function prepareCnicUpload(file: Blob): Promise<PreparedImage> {
+  const bitmap = await loadBitmap(file);
+  return encode(bitmap, 2600, 0.94, "image/jpeg");
 }
 
 /**

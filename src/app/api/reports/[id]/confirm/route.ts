@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/session";
 import { getOwnedReport, updateOwnedReport } from "@/lib/report/store";
-import { ingestReport } from "@/services/authority/ingest";
+import { ingestReport } from "@/services/gov/ingest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

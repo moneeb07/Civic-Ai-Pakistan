@@ -9,6 +9,7 @@ import {
   type CivicCategory,
   type GeneratedComplaint,
 } from "@/lib/report/schema";
+import { GEMINI_MODEL } from "@/services/gemini/model";
 
 /*
  * Turns everything a citizen provided — a category, what the vision step
@@ -23,7 +24,6 @@ import {
  * to swap it without touching any caller.
  */
 
-const MODEL = "gemini-3.6-flash";
 
 export interface ComplaintGenerationInput {
   category: CivicCategory;
@@ -105,7 +105,7 @@ class GeminiComplaintGenerationProvider implements ComplaintGenerationProvider {
     let rawText: string | undefined;
     try {
       const response = await client.models.generateContent({
-        model: MODEL,
+        model: GEMINI_MODEL,
         contents: [{ role: "user", parts: [{ text: PROMPT_TEMPLATE(input) }] }],
         config: {
           responseMimeType: "application/json",

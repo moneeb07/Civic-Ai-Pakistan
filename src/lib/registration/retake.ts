@@ -14,13 +14,22 @@
  */
 
 export type CnicSide = "front" | "back";
-export type AffectedSide = CnicSide | "both";
+export type AffectedSide = CnicSide | "both" | "unknown";
 
 export interface RetakePlan {
-  /** The side to photograph again. */
+  /** The side to photograph again, and the camera the citizen is sent to first. */
   retake: CnicSide;
   /** The side whose existing photo is kept and re-used, if any. */
   keeps: CnicSide | null;
+  /**
+   * Photos that must be thrown away.
+   *
+   * Stated explicitly rather than left as "whatever isn't kept", because the
+   * caller holds the blobs and the bug this module exists to prevent was
+   * precisely a caller that dropped one side and silently re-submitted the
+   * other. A plan that says what to discard cannot be half-applied.
+   */
+  discards: CnicSide[];
 }
 
 /**
@@ -28,11 +37,21 @@ export interface RetakePlan {
  *
  * "front" or "back" points precisely at the side that needs a retake — the
  * spec's Scenario A/B: a bad back never sends the citizen back to the front,
- * and vice versa. "both" is the honest fallback when the read genuinely does
- * not distinguish the two (or an older response shape omitted the signal
- * entirely) — it starts with the front, matching the natural order of the
- * flow, but only ever drops the front's photo; an existing back is kept and
- * can still be retaken on its own afterwards from the review screen.
+ * and vice versa.
+ *
+ * "both" means the model explicitly reported BOTH images unreadable. Neither
+ * photo is worth keeping, so both are discarded and the citizen walks the
+ * front-then-back flow again from the start. This case used to be merged with
+ * "unknown" below, and that merge was a real defect: the bad back was kept, so
+ * a second attempt only ever re-photographed the front, re-sent the same
+ * unreadable back, and failed identically — for ever. The address lives on the
+ * back, so the visible symptom was an address that could never be read no
+ * matter how many times the citizen tried.
+ *
+ * "unknown" is the honest fallback when the read genuinely does not
+ * distinguish the two (or an older response shape omitted the signal). It
+ * starts with the front, matching the natural order of the flow, and never
+ * discards a back that was never implicated.
  *
  * A side can only be KEPT if its photo actually exists; a plan that re-uses a
  * blob that was never captured would silently drop the citizen back to a
@@ -42,11 +61,21 @@ export function planRetake(
   affectedSide: AffectedSide | null | undefined,
   onFile: { front: boolean; back: boolean },
 ): RetakePlan {
-  if (affectedSide === "back" && onFile.front) {
-    return { retake: "back", keeps: "front" };
-  }
+  const discardsFor = (keeps: CnicSide | null): CnicSide[] =>
+    (["front", "back"] as const).filter((side) => side !== keeps && onFile[side]);
 
-  return { retake: "front", keeps: onFile.back ? "back" : null };
+  const plan = (retake: CnicSide, keeps: CnicSide | null): RetakePlan => ({
+    retake,
+    keeps,
+    discards: discardsFor(keeps),
+  });
+
+  // Both images explicitly bad: keep neither, and re-walk the whole flow.
+  if (affectedSide === "both") return plan("front", null);
+
+  if (affectedSide === "back" && onFile.front) return plan("back", "front");
+
+  return plan("front", onFile.back ? "back" : null);
 }
 
 // -- Manual-fallback offer ----------------------------------------------------

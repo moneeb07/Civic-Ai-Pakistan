@@ -40,8 +40,15 @@
     {
       "idx": 5,
       "version": "7",
-      "when": 1787999949743,
-      "tag": "0005_cool_moonstone",
+      "when": 1788005138527,
+      "tag": "0005_damp_white_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788400000000,
+      "tag": "0006_merge_grouping_and_collaboration",
       "breakpoints": true
     }
   ]

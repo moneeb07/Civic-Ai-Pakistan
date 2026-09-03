@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // The Expo app is linted by its own toolchain; the Next.js rules here
+    // (next/no-img-element and friends) do not apply to React Native.
+    "mobile/**",
   ]),
 ]);
 

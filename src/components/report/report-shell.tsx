@@ -4,8 +4,14 @@ import { ArrowLeft } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
 
-const STEPS = ["camera", "describe", "location", "review"] as const;
-type ReportStep = (typeof STEPS)[number];
+const STEPS = [
+  { key: "camera", label: "Photo" },
+  { key: "describe", label: "Describe" },
+  { key: "location", label: "Location" },
+  { key: "review", label: "Review" },
+] as const;
+
+type ReportStep = (typeof STEPS)[number]["key"];
 
 /*
  * The frame every report-creation screen sits in — the same composition as
@@ -22,7 +28,7 @@ export function ReportShell({
   backHref?: string;
   children: ReactNode;
 }) {
-  const currentIndex = STEPS.indexOf(step);
+  const currentIndex = STEPS.findIndex((entry) => entry.key === step);
 
   return (
     <div className="flex min-h-full flex-col bg-canvas">
@@ -46,19 +52,50 @@ export function ReportShell({
             <span className="size-10" aria-hidden="true" />
           </div>
 
-          <div className="mt-3 flex gap-1.5" role="progressbar" aria-valuenow={currentIndex + 1} aria-valuemin={1} aria-valuemax={STEPS.length}>
-            {STEPS.map((s, index) => (
-              <span
-                key={s}
-                className={
-                  index <= currentIndex
-                    ? "h-1 flex-1 rounded-full bg-civic-600"
-                    : "h-1 flex-1 rounded-full bg-line-strong"
-                }
-                aria-hidden="true"
-              />
-            ))}
-          </div>
+          {/*
+            Named steps rather than four anonymous bars.
+            
+            The bar version told somebody they were "three quarters through"
+            without saying through WHAT, so there was no way to know that the
+            next screen was the last one, or that the photo was already safely
+            captured. Numbering is legitimate here because these genuinely are
+            a sequence — each screen depends on the one before it.
+          */}
+          <ol
+            className="mt-3 flex items-center gap-1.5"
+            aria-label={`Step ${currentIndex + 1} of ${STEPS.length}`}
+          >
+            {STEPS.map((entry, index) => {
+              const done = index < currentIndex;
+              const current = index === currentIndex;
+
+              return (
+                <li key={entry.key} className="flex flex-1 flex-col gap-1.5">
+                  <span
+                    aria-hidden="true"
+                    className={
+                      done || current
+                        ? "h-1 rounded-full bg-civic-600"
+                        : "h-1 rounded-full bg-line-strong"
+                    }
+                  />
+                  <span
+                    className={
+                      current
+                        ? "text-[0.6875rem] font-semibold text-civic-700"
+                        : done
+                          ? "text-[0.6875rem] font-medium text-ink"
+                          : "text-[0.6875rem] font-medium text-muted"
+                    }
+                  >
+                    <span className="font-mono">0{index + 1}</span>{" "}
+                    <span className="hidden sm:inline">{entry.label}</span>
+                    {current ? <span className="sr-only"> (current step)</span> : null}
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
         </div>
       </header>
 

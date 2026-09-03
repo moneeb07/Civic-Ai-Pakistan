@@ -65,10 +65,22 @@ export interface ConfidenceGateInput {
 /**
  * Which physical side of the card a failure points at, so the citizen is only
  * ever asked to retake the side that actually needs it (spec: independent
- * front/back retry). "both" covers a genuinely ambiguous read — the honest
- * answer when the signal does not distinguish the two — never a guess.
+ * front/back retry).
+ *
+ * The distinction between "both" and "unknown" is load-bearing, and collapsing
+ * the two was a real bug: a read where the model explicitly reported BOTH
+ * images unreadable is not the same event as a read that reported nothing
+ * about either. Treating them alike meant a scan with two bad photos kept the
+ * bad back on file, re-photographed only the front, and re-submitted the same
+ * unreadable back forever — the citizen was never shown the back camera again
+ * and the address could never start working.
+ *
+ *   front    — only the front image was reported unreadable
+ *   back     — only the back image was reported unreadable
+ *   both     — both images were explicitly reported unreadable; neither is worth keeping
+ *   unknown  — no per-side signal at all; do not guess, and do not discard a photo
  */
-export type AffectedSide = "front" | "back" | "both";
+export type AffectedSide = "front" | "back" | "both" | "unknown";
 
 export interface ConfidenceGateResult {
   pass: boolean;
@@ -91,11 +103,11 @@ function isConfident(confidence: number | undefined): boolean {
  * Turns the model's per-side signal into a retry target.
  *
  * Deliberately conservative: a side is only pointed at when it is explicitly
- * reported bad. If the model says nothing (both null — an older response
- * shape, or genuine uncertainty) this returns "both" rather than guessing,
- * which is exactly the previous behaviour before per-side reporting existed —
- * so a citizen is never sent to retake a side that was never actually
- * implicated.
+ * reported bad. When the model says nothing about either side (both null — an
+ * older response shape, or genuine uncertainty) this returns "unknown", NOT
+ * "both": "both" is a positive claim that neither photo is worth keeping, and
+ * asserting that from an absence of evidence would make a citizen re-take a
+ * side that was never implicated.
  */
 function sideFromReadability(
   frontReadable: boolean | null,
@@ -104,9 +116,10 @@ function sideFromReadability(
   const frontBad = frontReadable === false;
   const backBad = backReadable === false;
 
-  if (frontBad && !backBad) return "front";
-  if (backBad && !frontBad) return "back";
-  return "both";
+  if (frontBad && backBad) return "both";
+  if (frontBad) return "front";
+  if (backBad) return "back";
+  return "unknown";
 }
 
 /**

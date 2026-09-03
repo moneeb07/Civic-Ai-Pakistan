@@ -7,6 +7,7 @@ import {
   visionResultSchema,
   type VisionResult,
 } from "@/lib/report/schema";
+import { GEMINI_MODEL } from "@/services/gemini/model";
 
 /*
  * Civic-issue image classification.
@@ -18,7 +19,6 @@ import {
  * this account; there is no separate VISION_API_KEY to invent.
  */
 
-const MODEL = "gemini-3.6-flash";
 
 const PROMPT = `You are looking at one photograph a Pakistani citizen took of a possible civic problem — something on a street, footpath, or public utility.
 
@@ -79,7 +79,7 @@ class GeminiVisionProvider implements VisionProvider {
     let rawText: string | undefined;
     try {
       const response = await client.models.generateContent({
-        model: MODEL,
+        model: GEMINI_MODEL,
         contents: [
           {
             role: "user",

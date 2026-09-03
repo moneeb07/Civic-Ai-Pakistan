@@ -15,7 +15,10 @@ export default async function DashboardLayout({ children }: { children: ReactNod
   return (
     <div className="flex min-h-full flex-col bg-canvas">
       <div className="flex-1">{children}</div>
-      <BottomNav />
+      {/* Small screens only — from lg up, CitizenShell's sidebar is the navigation. */}
+      <div className="lg:hidden">
+        <BottomNav />
+      </div>
     </div>
   );
 }

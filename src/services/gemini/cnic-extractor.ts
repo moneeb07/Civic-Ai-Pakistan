@@ -2,6 +2,7 @@ import "server-only";
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { z } from "zod";
+import { GEMINI_MODEL } from "@/services/gemini/model";
 
 /*
  * CNIC extraction service.
@@ -13,14 +14,6 @@ import { z } from "zod";
  * image. Callers must phrase results as "extracted", never "verified".
  */
 
-/*
- * gemini-2.5-flash is retired for new API keys as of this account (confirmed via
- * a direct 404 from the API: "no longer available to new users ... use
- * models/gemini-3.6-flash"). Flash is still the right tier for this job — CNIC
- * reading is a fast, structured, low-latency task, not one that needs a Pro-tier
- * model.
- */
-const MODEL = "gemini-3.6-flash";
 
 /*
  * A NADRA CNIC's back side prints Present Address and Permanent Address as two
@@ -81,6 +74,15 @@ Address fields (usually on the back, printed in Urdu as "Present Address" / مو
 19. If the card shows no address at all, set both presentAddress and permanentAddress to null.
 20. If present and permanent address are identical on the card, still return both blocks — do not assume, always read what is actually printed for each.
 
+
+SIDE IDENTIFICATION — do this before reading any field:
+21. For each image you are given, decide which side of the CNIC it actually shows, and report it in "frontImageSide" (for the first image) and "backImageSide" (for the second image; null if only one image was provided).
+    - "front" — the side carrying the photograph of the person, Name, Father Name, Gender, Country of Stay, Identity Number, Date of Birth, Date of Issue and Date of Expiry.
+    - "back" — the side carrying Present Address (موجودہ پتہ) and Permanent Address (مستقل پتہ), the holder's signature and the fingerprint box. It has no photograph of the person.
+    - "unknown" — it is not a CNIC at all, or too unclear to tell which side it is.
+22. Report the side you ACTUALLY SEE in each image. Do not assume the first image is the front and the second is the back — a citizen can easily photograph the same side twice, or photograph them in the wrong order, and saying so is the single most useful thing you can report when that happens. If both images show the same side, say so honestly in these two fields.
+23. Judging the side is independent of readability: a blurred image whose layout is plainly the address side is still "back".
+
 If neither image is a Pakistani CNIC at all, set readable to false and return null for every field.`;
 
 const romanAddressSchema = {
@@ -131,6 +133,9 @@ const extractionResponseSchema = {
     readable: { type: Type.BOOLEAN },
     frontReadable: { type: Type.BOOLEAN, nullable: true },
     backReadable: { type: Type.BOOLEAN, nullable: true },
+    /* Which side each image ACTUALLY shows — see prompt rules 21-23. */
+    frontImageSide: { type: Type.STRING, nullable: true },
+    backImageSide: { type: Type.STRING, nullable: true },
     confidence: { type: Type.NUMBER },
     fieldConfidence: fieldConfidenceSchema,
     fullName: { type: Type.STRING, nullable: true },
@@ -212,6 +217,20 @@ const fieldConfidencePayloadSchema = z
   .nullable()
   .optional();
 
+/**
+ * The side an image was observed to show.
+ *
+ * Unknown or malformed values collapse to null, meaning "the model expressed
+ * no usable opinion". That is deliberately different from "unknown", which is
+ * the model positively saying it could not tell — only the latter is worth
+ * reporting to the citizen.
+ */
+const observedSideSchema = z
+  .enum(["front", "back", "unknown"])
+  .nullable()
+  .optional()
+  .catch(null);
+
 const geminiPayloadSchema = z.object({
   readable: z.boolean(),
   // Per-side, so a retake never has to guess or re-ask for a side that was
@@ -219,6 +238,14 @@ const geminiPayloadSchema = z.object({
   // as a false claim that a side failed.
   frontReadable: z.boolean().nullable().optional().catch(null),
   backReadable: z.boolean().nullable().optional().catch(null),
+  /*
+   * Which side each image actually shows. Anything the model returns that is
+   * not one of the three known values becomes null ("no opinion") rather than
+   * an error — an unrecognised string must never be able to accuse a citizen
+   * of photographing the wrong side.
+   */
+  frontImageSide: observedSideSchema,
+  backImageSide: observedSideSchema,
   confidence: z.number().min(0).max(1).catch(0),
   fieldConfidence: fieldConfidencePayloadSchema,
   fullName: nullableText,
@@ -278,11 +305,22 @@ export type CnicFieldConfidence = {
   nationality?: number;
 };
 
+/** Which side of the card an image was observed to show. Null = no usable opinion. */
+export type ObservedSide = "front" | "back" | "unknown" | null;
+
 export interface CnicExtraction {
   readable: boolean;
   /** Null when that side was not submitted at all — never a false claim of failure. */
   frontReadable: boolean | null;
   backReadable: boolean | null;
+  /**
+   * Which side each submitted image ACTUALLY shows, as observed — not as
+   * assumed from the slot it arrived in. This is what catches a citizen
+   * photographing the front twice, which otherwise produces a perfectly
+   * confident read that simply has no address in it and no explanation why.
+   */
+  frontImageSide: ObservedSide;
+  backImageSide: ObservedSide;
   confidence: number;
   /** Per-field certainty, fed straight into the accuracy gate. */
   fieldConfidence: CnicFieldConfidence;
@@ -412,7 +450,7 @@ export async function extractCnicFromImages(
     }
 
     const response = await client.models.generateContent({
-      model: MODEL,
+      model: GEMINI_MODEL,
       contents: [{ role: "user", parts }],
       config: {
         responseMimeType: "application/json",
@@ -467,6 +505,10 @@ export async function extractCnicFromImages(
     readable: data.readable,
     frontReadable: data.frontReadable ?? null,
     backReadable: data.backReadable ?? null,
+    frontImageSide: data.frontImageSide ?? null,
+    // A side that was never submitted has no observed side at all — reporting
+    // one would let a front-only scan be accused of a wrong-side mistake.
+    backImageSide: back ? (data.backImageSide ?? null) : null,
     confidence: data.confidence,
     fieldConfidence: data.fieldConfidence ?? {},
     fullName: data.fullName ?? null,

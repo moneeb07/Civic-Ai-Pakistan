@@ -10,8 +10,9 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed:authority": "NODE_OPTIONS=--conditions=react-server tsx scripts/seed-authority.mts",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "db:seed": "tsx scripts/seed.mts",
+    "check:cnic": "tsx scripts/check-cnic.mts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.2.17",
@@ -23,6 +24,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
+    "framer-motion": "^12.43.0",
     "lucide-react": "^0.475.0",
     "next": "16.3.3",
     "pg": "^8.13.1",

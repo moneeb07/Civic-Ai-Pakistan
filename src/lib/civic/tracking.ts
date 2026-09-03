@@ -1,17 +1,15 @@
 import "server-only";
 
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { report } from "@/db/schema";
-import {
-  authority,
-  civicIssue,
-  department,
-  issueReport,
-  issueStatusEvent,
-} from "@/db/authority/schema";
-import type { IssueStatus } from "@/lib/authority/schema";
+import { govSchema } from "@/db/schema";
+import { collabSchema } from "@/db/gov/collaboration";
+
+const { civicIssue, issueReport } = collabSchema;
+const { department, organization, complaintAssignment, deptWorkflowStage } = govSchema;
+
 
 /*
  * What a CITIZEN may see about their own report.
@@ -42,11 +40,14 @@ export interface TrackedReport {
   issue: {
     issueCode: string;
     title: string;
-    status: IssueStatus;
+    /** The department's current workflow stage, or null before assignment. */
+    stageName: string | null;
+    stagePosition: number | null;
+    isResolved: boolean;
     /** How many citizens reported the same underlying problem. */
     reportCount: number;
     departmentName: string | null;
-    authorityName: string;
+    orgName: string;
     /**
      * True when the similarity agent was not certain this report belongs
      * here. Shown to the citizen honestly rather than hidden.
@@ -70,18 +71,27 @@ export async function listCitizenReports(userId: string): Promise<TrackedReport[
 
       issueCode: civicIssue.issueCode,
       issueTitle: civicIssue.title,
-      issueStatus: civicIssue.status,
+      stageName: deptWorkflowStage.name,
+      stagePosition: deptWorkflowStage.position,
+      stageTerminal: deptWorkflowStage.isTerminal,
       reportCount: civicIssue.reportCount,
       issueUpdatedAt: civicIssue.updatedAt,
       departmentName: department.name,
-      authorityName: authority.name,
+      orgName: organization.name,
       matchStatus: issueReport.matchStatus,
     })
     .from(report)
     .leftJoin(issueReport, eq(issueReport.reportId, report.id))
     .leftJoin(civicIssue, eq(issueReport.issueId, civicIssue.id))
-    .leftJoin(department, eq(civicIssue.departmentId, department.id))
-    .leftJoin(authority, eq(civicIssue.authorityId, authority.id))
+    .leftJoin(department, eq(civicIssue.deptId, department.id))
+    .leftJoin(organization, eq(civicIssue.orgId, organization.id))
+    /*
+     * Progress is the department's own workflow stage, not a fixed three-state
+     * enum: each department defines its own ordered stages, so what a citizen
+     * is told mirrors exactly what the department is actually doing.
+     */
+    .leftJoin(complaintAssignment, eq(complaintAssignment.issueId, civicIssue.id))
+    .leftJoin(deptWorkflowStage, eq(deptWorkflowStage.id, complaintAssignment.currentStageId))
     .where(eq(report.userId, userId))
     .orderBy(desc(report.createdAt));
 
@@ -97,10 +107,12 @@ export async function listCitizenReports(userId: string): Promise<TrackedReport[
       ? {
           issueCode: row.issueCode,
           title: row.issueTitle ?? "",
-          status: (row.issueStatus ?? "REPORTED") as IssueStatus,
+          stageName: row.stageName ?? null,
+          stagePosition: row.stagePosition ?? null,
+          isResolved: row.stageTerminal === true,
           reportCount: row.reportCount ?? 1,
           departmentName: row.departmentName,
-          authorityName: row.authorityName ?? "",
+          orgName: row.orgName ?? "",
           needsReview: row.matchStatus === "needs_review",
           updatedAt: row.issueUpdatedAt ?? row.submittedAt,
         }
@@ -113,11 +125,13 @@ export interface CitizenIssueDetail {
   title: string;
   description: string | null;
   category: string;
-  status: IssueStatus;
   locationLabel: string | null;
   reportCount: number;
   departmentName: string | null;
-  authorityName: string;
+  orgName: string;
+  /** The stage the department is on now — the latest entered stage. */
+  stageName: string | null;
+  isResolved: boolean;
   createdAt: Date;
   /**
    * Status changes with timestamps only.
@@ -126,7 +140,7 @@ export interface CitizenIssueDetail {
    * to know their issue moved to In Process on a date, not to read the
    * department's internal reasoning about it.
    */
-  timeline: { status: IssueStatus; at: Date }[];
+  timeline: { stageName: string; position: number; isTerminal: boolean; at: Date }[];
 }
 
 /**
@@ -158,34 +172,56 @@ export async function getCitizenIssue(
       title: civicIssue.title,
       description: civicIssue.description,
       category: civicIssue.category,
-      status: civicIssue.status,
       locationLabel: civicIssue.locationLabel,
       reportCount: civicIssue.reportCount,
       departmentName: department.name,
-      authorityName: authority.name,
+      orgName: organization.name,
       createdAt: civicIssue.createdAt,
     })
     .from(civicIssue)
-    .innerJoin(authority, eq(civicIssue.authorityId, authority.id))
-    .leftJoin(department, eq(civicIssue.departmentId, department.id))
+    .leftJoin(organization, eq(civicIssue.orgId, organization.id))
+    .leftJoin(department, eq(civicIssue.deptId, department.id))
     .where(eq(civicIssue.issueCode, issueCode))
     .limit(1);
 
   if (!row) return null;
 
+  /*
+   * The timeline is the department's real stage history — one entry per stage
+   * the complaint actually entered. A citizen sees the same progression the
+   * department works to, named the way the department named it, rather than a
+   * generic three-step bar that hides what is really happening.
+   */
   const events = await db
-    .select({ toStatus: issueStatusEvent.toStatus, createdAt: issueStatusEvent.createdAt })
-    .from(issueStatusEvent)
-    .where(eq(issueStatusEvent.issueId, row.id))
-    .orderBy(asc(issueStatusEvent.createdAt));
+    .select({
+      stageName: govSchema.deptWorkflowStage.name,
+      position: govSchema.deptWorkflowStage.position,
+      isTerminal: govSchema.deptWorkflowStage.isTerminal,
+      at: govSchema.complaintStageProgress.enteredAt,
+    })
+    .from(govSchema.complaintStageProgress)
+    .innerJoin(
+      govSchema.complaintAssignment,
+      eq(govSchema.complaintAssignment.id, govSchema.complaintStageProgress.assignmentId),
+    )
+    .innerJoin(
+      govSchema.deptWorkflowStage,
+      eq(govSchema.deptWorkflowStage.id, govSchema.complaintStageProgress.stageId),
+    )
+    .where(eq(govSchema.complaintAssignment.issueId, row.id))
+    .orderBy(asc(govSchema.complaintStageProgress.enteredAt));
 
   return {
     ...row,
-    status: row.status as IssueStatus,
-    authorityName: row.authorityName ?? "",
+    orgName: row.orgName ?? "",
+    // The current stage is simply the most recently entered one.
+    stageName: events.length > 0 ? events[events.length - 1].stageName : null,
+    isResolved: events.some((e) => e.isTerminal),
     timeline: events.map((event) => ({
-      status: event.toStatus as IssueStatus,
-      at: event.createdAt,
+      stageName: event.stageName,
+      position: event.position,
+      isTerminal: event.isTerminal,
+      at: event.at,
     })),
   };
 }
@@ -199,41 +235,55 @@ export async function getCitizenSummary(userId: string) {
     total: reports.length,
     submitted: reports.filter((r) => r.reportStatus === "ready_for_submission").length,
     drafts: reports.filter((r) => r.reportStatus !== "ready_for_submission").length,
-    reported: withIssue.filter((r) => r.issue!.status === "REPORTED").length,
-    inProcess: withIssue.filter((r) => r.issue!.status === "IN_PROCESS").length,
-    resolved: withIssue.filter((r) => r.issue!.status === "RESOLVED").length,
+    reported: withIssue.filter((r) => r.issue!.stageName === null).length,
+    inProcess: withIssue.filter((r) => r.issue!.stageName !== null && !r.issue!.isResolved).length,
+    resolved: withIssue.filter((r) => r.issue!.isResolved).length,
   };
 }
 
-/** Public, authority-level performance figures. Contains nothing citizen-specific. */
+/**
+ * Public performance figures, per organization. Contains nothing
+ * citizen-specific and requires no session.
+ *
+ * "Resolved" means the complaint reached its department's own TERMINAL stage —
+ * each department decides what finished means for its work, and this reads
+ * that decision rather than imposing one.
+ */
 export async function getPublicPerformance() {
-  const authorities = await db.select().from(authority).orderBy(asc(authority.name));
-  if (authorities.length === 0) return [];
+  const orgs = await db
+    .select()
+    .from(organization)
+    .orderBy(asc(organization.name));
+  if (orgs.length === 0) return [];
 
   const issues = await db
     .select({
-      authorityId: civicIssue.authorityId,
-      status: civicIssue.status,
+      orgId: civicIssue.orgId,
       reportCount: civicIssue.reportCount,
+      assignedStageId: govSchema.complaintAssignment.currentStageId,
+      isTerminal: govSchema.deptWorkflowStage.isTerminal,
     })
     .from(civicIssue)
-    .where(
-      inArray(
-        civicIssue.authorityId,
-        authorities.map((row) => row.id),
-      ),
+    .leftJoin(
+      govSchema.complaintAssignment,
+      eq(govSchema.complaintAssignment.issueId, civicIssue.id),
+    )
+    .leftJoin(
+      govSchema.deptWorkflowStage,
+      eq(govSchema.deptWorkflowStage.id, govSchema.complaintAssignment.currentStageId),
     );
 
-  return authorities.map((row) => {
-    const mine = issues.filter((issue) => issue.authorityId === row.id);
+  return orgs.map((row) => {
+    const mine = issues.filter((issue) => issue.orgId === row.id);
     return {
       authorityId: row.id,
       authorityName: row.name,
       authorityCode: row.code,
-      reported: mine.filter((i) => i.status === "REPORTED").length,
-      inProcess: mine.filter((i) => i.status === "IN_PROCESS").length,
-      resolved: mine.filter((i) => i.status === "RESOLVED").length,
-      citizenReports: mine.reduce((sum, i) => sum + i.reportCount, 0),
+      // Not yet routed into a department's workflow.
+      reported: mine.filter((i) => i.assignedStageId === null).length,
+      inProcess: mine.filter((i) => i.assignedStageId !== null && !i.isTerminal).length,
+      resolved: mine.filter((i) => i.isTerminal === true).length,
+      citizenReports: mine.reduce((sum, i) => sum + (i.reportCount ?? 0), 0),
     };
   });
 }

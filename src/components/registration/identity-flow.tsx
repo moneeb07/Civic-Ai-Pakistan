@@ -15,6 +15,7 @@ import {
 import { VoiceAssistBar } from "@/components/assisted/voice-assist-bar";
 import { useAssistedMode } from "@/components/assisted/assisted-mode-provider";
 import { CaptureGuidance, CnicCapture } from "@/components/registration/cnic-capture";
+import { CnicWorkbench } from "@/components/registration/cnic-workbench";
 import { StepHeading } from "@/components/registration/registration-shell";
 import { FormAlert } from "@/components/auth/form-alert";
 import { FormField } from "@/components/auth/form-field";
@@ -23,6 +24,18 @@ import { Input } from "@/components/ui/input";
 import { getDictionary } from "@/lib/i18n";
 import { formatCnic, isValidCnicFormat, maskCnic } from "@/lib/cnic";
 import { planRetake, shouldOfferManualFallback } from "@/lib/registration/retake";
+import type { AddressOutcome } from "@/lib/cnic-address-outcome";
+
+/*
+ * What the review screen says about the address.
+ *
+ * The server's outcome, plus one state that only exists on screen: the citizen
+ * has read the problem and chosen to type the address themselves, so the panel
+ * stands down. Kept out of lib/cnic-address-outcome.ts deliberately — that
+ * module describes what the SCAN found, and "the citizen pressed a button" is
+ * not a property of a scan.
+ */
+type AddressNotice = AddressOutcome | "manual_accepted";
 import type { CnicAddressData } from "@/lib/registration/schema";
 
 const t = getDictionary();
@@ -109,6 +122,66 @@ function TroubleScanningBanner({
   );
 }
 
+/**
+ * Shown when a scan passed but the address did not come through.
+ *
+ * Deliberately offers BOTH ways out on equal footing. Retaking the back is
+ * better when the photo was the problem; typing it is better when the card is
+ * worn, the webcam is what it is, or the citizen has simply had enough. Making
+ * one of them the grudging fallback would be a guess about which of those is
+ * true, and getting that guess wrong is what traps someone in a scan loop.
+ */
+function AddressProblemPanel({
+  outcome,
+  onRescanBack,
+  onEnterManually,
+  disabled,
+}: {
+  outcome: AddressNotice;
+  onRescanBack: () => void;
+  onEnterManually: () => void;
+  disabled?: boolean;
+}) {
+  if (outcome === "manual_accepted" || outcome === "available") return null;
+
+  const copy =
+    outcome === "unreadable"
+      ? { title: t.extraction.addressUnreadableTitle, body: t.extraction.addressUnreadableBody }
+      : outcome === "partial"
+        ? { title: t.extraction.addressPartialTitle, body: t.extraction.addressPartialBody }
+        : { title: t.extraction.addressMissingTitle, body: t.extraction.addressMissingBody };
+
+  return (
+    <div role="alert" className="rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3.5">
+      <div className="flex items-start gap-2.5">
+        <MapPinned className="mt-0.5 size-4 shrink-0 text-amber-700" aria-hidden="true" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[0.875rem] font-semibold text-amber-900">{copy.title}</p>
+          <p className="mt-1 text-[0.8125rem] leading-relaxed text-amber-900/80">{copy.body}</p>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button onClick={onRescanBack} disabled={disabled} className="min-h-10 px-4 text-sm">
+              <RotateCcw className="size-4" aria-hidden="true" />
+              {outcome === "not_printed"
+                ? t.extraction.scanBackForAddress
+                : t.extraction.retakeBack}
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={onEnterManually}
+              disabled={disabled}
+              className="min-h-10 px-4 text-sm"
+            >
+              <Keyboard className="size-4" aria-hidden="true" />
+              {t.extraction.addressEnterManually}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function IdentityFlow() {
   const router = useRouter();
   const { reportStruggle } = useAssistedMode();
@@ -123,6 +196,14 @@ export function IdentityFlow() {
    */
   const frontBlobRef = React.useRef<Blob | null>(null);
   const backBlobRef = React.useRef<Blob | null>(null);
+  /*
+   * Thumbnails of what has actually been captured, so both sides and their
+   * state are visible beside the scanner rather than only after extraction.
+   */
+  const [thumbs, setThumbs] = React.useState<{ front: string | null; back: string | null }>({
+    front: null,
+    back: null,
+  });
   /** Set while the citizen is replacing exactly one side. */
   const [retakeTarget, setRetakeTarget] = React.useState<"front" | "back" | null>(null);
 
@@ -148,6 +229,12 @@ export function IdentityFlow() {
   const [extracted, setExtracted] = React.useState<string[]>([]);
   const [withheld, setWithheld] = React.useState<string[]>([]);
   const [backScanned, setBackScanned] = React.useState(false);
+  /*
+   * What became of the address on the last passing scan. Null before any scan.
+   * Drives the review screen's address notice, which must always say something
+   * actionable rather than leaving a blank field unexplained.
+   */
+  const [addressOutcome, setAddressOutcome] = React.useState<AddressNotice | null>(null);
   const [presentAddress, setPresentAddress] = React.useState<CnicAddressData | null>(
     null,
   );
@@ -205,14 +292,34 @@ export function IdentityFlow() {
          * form pre-filled from a rejected read is exactly the guessed data
          * the gate exists to keep out.
          */
-        if (payload.reason === "low_confidence") {
-          // A fresh failure always has a chance to re-show the banner, even
-          // if a citizen dismissed it once and then hit another rough patch.
-          setScanFailureCount((count) => count + 1);
-          setTroubleBannerDismissed(false);
+        /*
+         * Two different rejections send the citizen back to a camera:
+         *
+         *   low_confidence — the photo was of the right side but not readable
+         *   wrong_side     — the photo was perfectly sharp, but of the wrong
+         *                    half of the card
+         *
+         * They are handled together because the recovery is identical, but
+         * they are NOT the same event, and only the first one counts towards
+         * the "scanning keeps failing, offer manual entry" threshold. Showing
+         * the front twice is a mix-up a citizen fixes in one second once they
+         * are told; treating it as evidence that scanning does not work for
+         * them would push them into typing their CNIC out by hand over a
+         * mistake they have already corrected.
+         */
+        if (payload.reason === "low_confidence" || payload.reason === "wrong_side") {
+          if (payload.reason === "low_confidence") {
+            // A fresh failure always has a chance to re-show the banner, even
+            // if a citizen dismissed it once and then hit another rough patch.
+            setScanFailureCount((count) => count + 1);
+            setTroubleBannerDismissed(false);
+          }
+
           setFields(EMPTY);
           setExtracted([]);
           setWithheld([]);
+          setBackScanned(false);
+          setAddressOutcome(null);
           setPresentAddress(null);
           setPermanentAddress(null);
 
@@ -226,9 +333,21 @@ export function IdentityFlow() {
             back: Boolean(backBlobRef.current),
           });
 
-          // Drop only the photo being replaced; the kept side stays on file.
-          if (plan.retake === "front") frontBlobRef.current = null;
-          else backBlobRef.current = null;
+          /*
+           * Apply the plan's discards EXACTLY.
+           *
+           * The previous version dropped only `plan.retake`, which meant a
+           * verdict of "both images are unreadable" kept the unreadable back
+           * on file. The citizen was then sent to the front camera, their new
+           * front was immediately re-submitted against that same bad back, and
+           * the read failed identically — for ever, with the back camera never
+           * shown again. Since the address is printed on the back, the visible
+           * symptom was an address that could never be read.
+           */
+          for (const side of plan.discards) {
+            if (side === "front") frontBlobRef.current = null;
+            else backBlobRef.current = null;
+          }
 
           setRetakeTarget(plan.keeps ? plan.retake : null);
           setPhase(plan.retake === "front" ? "capture-front" : "capture-back");
@@ -260,6 +379,15 @@ export function IdentityFlow() {
       setBackScanned(Boolean(data.backScanned));
       setPresentAddress(data.presentAddress ?? null);
       setPermanentAddress(data.permanentAddress ?? null);
+      /*
+       * A passing scan still has to account for the address. Without this the
+       * review screen could show a blank address with no reason given and no
+       * way forward — see lib/cnic-address-outcome.ts.
+       */
+      setAddressOutcome(
+        (data.addressOutcome as AddressOutcome | undefined) ??
+          (data.presentAddress || data.permanentAddress ? "available" : "unreadable"),
+      );
       setPhase("review");
     } catch {
       reportStruggle();
@@ -268,8 +396,9 @@ export function IdentityFlow() {
     }
   }
 
-  function handleFrontCaptured(image: { blob: Blob }) {
+  function handleFrontCaptured(image: { blob: Blob; dataUrl?: string }) {
     frontBlobRef.current = image.blob;
+    if (image.dataUrl) setThumbs((current) => ({ ...current, front: image.dataUrl! }));
 
     /*
      * Replacing just the front: straight back to reading, against the back
@@ -291,13 +420,14 @@ export function IdentityFlow() {
     setPhase("capture-back");
   }
 
-  function handleBackCaptured(image: { blob: Blob }) {
+  function handleBackCaptured(image: { blob: Blob; dataUrl?: string }) {
     if (!frontBlobRef.current) {
       setPhase("capture-front");
       return;
     }
 
     backBlobRef.current = image.blob;
+    if (image.dataUrl) setThumbs((current) => ({ ...current, back: image.dataUrl! }));
     setRetakeTarget(null);
     void runExtraction(frontBlobRef.current, image.blob);
   }
@@ -416,7 +546,6 @@ export function IdentityFlow() {
   // -- Review / manual entry ------------------------------------------------
   if (phase === "review" || phase === "manual") {
     const isReview = phase === "review";
-    const hasAnyAddress = Boolean(presentAddress ?? permanentAddress);
 
     return (
       <>
@@ -466,13 +595,36 @@ export function IdentityFlow() {
               </div>
             ) : null}
 
-            {backScanned ? (
+            {/*
+              The address notice.
+              
+              A clean read gets the quiet grey line it always had. Anything
+              else gets an amber panel with two real buttons on it. The version
+              this replaces showed one muted sentence for every outcome
+              including total failure, which left a citizen with an empty
+              address, no stated reason, and nothing to press.
+            */}
+            {addressOutcome === "available" ? (
               <div className="flex items-start gap-2.5 rounded-[18px] border border-line bg-surface px-4 py-3.5">
                 <MapPinned className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
                 <p className="text-[0.8125rem] leading-relaxed text-muted">
-                  {hasAnyAddress
-                    ? t.extraction.presentAddressFound
-                    : t.extraction.addressNotFound}
+                  {t.extraction.presentAddressFound}
+                </p>
+              </div>
+            ) : addressOutcome ? (
+              <AddressProblemPanel
+                outcome={addressOutcome}
+                onRescanBack={() => retakeSide("back")}
+                onEnterManually={() => setAddressOutcome("manual_accepted")}
+                disabled={submitting}
+              />
+            ) : null}
+
+            {addressOutcome === "manual_accepted" ? (
+              <div className="flex items-start gap-2.5 rounded-[18px] border border-civic-200 bg-civic-50 px-4 py-3.5">
+                <Keyboard className="mt-0.5 size-4 shrink-0 text-civic-700" aria-hidden="true" />
+                <p className="text-[0.8125rem] leading-relaxed text-civic-900">
+                  {t.extraction.addressManualNoted}
                 </p>
               </div>
             ) : null}
@@ -633,6 +785,8 @@ export function IdentityFlow() {
               setRetakeTarget(null);
               setError(null);
               setWithheld([]);
+              setBackScanned(false);
+              setAddressOutcome(null);
               setPresentAddress(null);
               setPermanentAddress(null);
               setPhase("capture-front");
@@ -678,25 +832,34 @@ export function IdentityFlow() {
           </div>
         ) : null}
 
-        <div className="space-y-4">
-          <CnicCapture
-            key="back"
-            onCaptured={handleBackCaptured}
-            disabled={submitting}
-            frameLabel={t.identity.frameLabelBack}
-            previewAlt="The back of your CNIC"
-            title={t.identity.autoCapture.scannerTitleBack}
-          />
-          <CaptureGuidance />
+        <CnicWorkbench
+          title="Scan the back"
+          subtitle="The side with your address on it"
+          front={{ state: "captured", dataUrl: thumbs.front }}
+          back={{ state: "capturing", dataUrl: thumbs.back }}
+          scanner={
+            <div className="space-y-4">
+              <CnicCapture
+                key="back"
+                side="back"
+                onCaptured={handleBackCaptured}
+                disabled={submitting}
+                frameLabel={t.identity.frameLabelBack}
+                previewAlt="The back of your CNIC"
+                title={t.identity.autoCapture.scannerTitleBack}
+              />
+              <CaptureGuidance />
 
-          <button
-            type="button"
-            onClick={skipBack}
-            className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-line bg-surface px-4 py-3 text-[0.875rem] font-medium text-civic-700 transition-colors hover:border-civic-200 hover:bg-civic-50"
-          >
-            {t.identity.skipBack}
-          </button>
-        </div>
+              <button
+                type="button"
+                onClick={skipBack}
+                className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-line bg-surface px-4 py-3 text-[0.875rem] font-medium text-civic-700 transition-colors hover:border-civic-200 hover:bg-civic-50"
+              >
+                {t.identity.skipBack}
+              </button>
+            </div>
+          }
+        />
       </>
     );
   }
@@ -727,27 +890,36 @@ export function IdentityFlow() {
         </div>
       ) : null}
 
-      <div className="space-y-4">
-        <CnicCapture
-          key="front"
-          onCaptured={handleFrontCaptured}
-          disabled={submitting}
-          title={t.identity.autoCapture.scannerTitleFront}
-        />
-        <CaptureGuidance />
+      <CnicWorkbench
+        title="Scan the front"
+        subtitle="The side with your photograph on it"
+        front={{ state: "capturing", dataUrl: thumbs.front }}
+        back={{ state: thumbs.back ? "captured" : "pending", dataUrl: thumbs.back }}
+        scanner={
+        <div className="space-y-4">
+          <CnicCapture
+            key="front"
+            side="front"
+            onCaptured={handleFrontCaptured}
+            disabled={submitting}
+            title={t.identity.autoCapture.scannerTitleFront}
+          />
+          <CaptureGuidance />
 
-        <button
-          type="button"
-          onClick={() => {
-            setPhase("manual");
-            setExtracted([]);
-          }}
-          className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-line bg-surface px-4 py-3 text-[0.875rem] font-medium text-civic-700 transition-colors hover:border-civic-200 hover:bg-civic-50"
-        >
-          <Keyboard className="size-4" aria-hidden="true" />
-          {t.identity.manual}
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPhase("manual");
+              setExtracted([]);
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-line bg-surface px-4 py-3 text-[0.875rem] font-medium text-civic-700 transition-colors hover:border-civic-200 hover:bg-civic-50"
+          >
+            <Keyboard className="size-4" aria-hidden="true" />
+            {t.identity.manual}
+          </button>
+        </div>
+        }
+      />
     </>
   );
 }
