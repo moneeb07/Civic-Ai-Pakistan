@@ -3,20 +3,20 @@ import "server-only";
 import { appendFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import { clip, summariseContents, type LoggedPart } from "@/services/gemini/log-redact";
+import { clip, summariseContents, type LoggedPart } from "@/services/ai/log-redact";
 
 /*
- * A transcript of every conversation CivicAI has with Gemini.
+ * A transcript of every conversation CivicAI has with its model provider.
  *
- * Gemini is reached from five different services, and when a read comes back
- * wrong the first question is always the same: what did we actually send, and
- * what actually came back? Reconstructing that from application logs was
- * guesswork, because the prompts are long, assembled at run time, and never
- * printed anywhere.
+ * The model is reached from five different services, and when a read comes
+ * back wrong the first question is always the same: what did we actually
+ * send, and what actually came back? Reconstructing that from application
+ * logs was guesswork, because the prompts are long, assembled at run time,
+ * and never printed anywhere.
  *
  * WHERE MOBILE FITS IN
- * The phone never talks to Gemini. It calls the same Next.js API routes the
- * browser does, and those routes call Gemini server-side — so logging here
+ * The phone never talks to the model. It calls the same Next.js API routes
+ * the browser does, and those routes call the model server-side — so logging here
  * captures both clients by construction. Which one made the call is recorded
  * as `source`, read from the request's user-agent where one is available.
  *
@@ -33,13 +33,25 @@ import { clip, summariseContents, type LoggedPart } from "@/services/gemini/log-
  *   - image, audio or any other binary payload (only its type and size)
  */
 
-/** Off by explicit request; on otherwise, which is what makes it useful. */
+/*
+ * Off by explicit request; on otherwise, which is what makes it useful.
+ *
+ * GEMINI_LOG / GEMINI_LOG_DIR are still honoured after the move to OpenAI.
+ * Renaming an environment variable silently turns somebody's existing "off"
+ * into "on", and the thing being switched on writes citizens' CNIC details to
+ * disk — so the old names keep working and the new ones take precedence.
+ */
 function enabled(): boolean {
-  return (process.env.GEMINI_LOG ?? "").toLowerCase() !== "off";
+  const setting = process.env.AI_LOG ?? process.env.GEMINI_LOG ?? "";
+  return setting.toLowerCase() !== "off";
 }
 
 function logDir(): string {
-  return process.env.GEMINI_LOG_DIR ?? join(process.cwd(), "logs", "gemini");
+  return (
+    process.env.AI_LOG_DIR ??
+    process.env.GEMINI_LOG_DIR ??
+    join(process.cwd(), "logs", "ai")
+  );
 }
 
 /**
@@ -70,7 +82,7 @@ async function callSource(): Promise<{ source: string; userAgent: string | null 
 
 export { summariseContents };
 
-export interface GeminiLogEntry {
+export interface AiLogEntry {
   /** Which service made the call — "cnic-extract", "vision", and so on. */
   service: string;
   model: string;
@@ -92,7 +104,7 @@ export interface GeminiLogEntry {
  * registration is worse than no logger at all. Failures are reported to the
  * console once and then swallowed.
  */
-export async function logGeminiCall(entry: GeminiLogEntry): Promise<void> {
+export async function logAiCall(entry: AiLogEntry): Promise<void> {
   if (!enabled()) return;
 
   try {
@@ -120,11 +132,11 @@ export async function logGeminiCall(entry: GeminiLogEntry): Promise<void> {
     await mkdir(dir, { recursive: true });
 
     // One file per day, JSON Lines: `tail -f` works, and so does jq.
-    const file = join(dir, `gemini-${now.toISOString().slice(0, 10)}.log`);
+    const file = join(dir, `ai-${now.toISOString().slice(0, 10)}.log`);
     await appendFile(file, `${line}\n`, "utf8");
   } catch (error) {
     console.error(
-      "[gemini-log] could not write the transcript:",
+      "[ai-log] could not write the transcript:",
       error instanceof Error ? error.message : "unknown error",
     );
   }

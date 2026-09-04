@@ -12,11 +12,11 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "db:seed": "tsx scripts/seed.mts",
-    "check:cnic": "tsx scripts/check-cnic.mts"
+    "check:cnic": "tsx scripts/check-cnic.mts",
+    "check:ai": "tsx scripts/check-ai.mts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.2.17",
-    "@google/genai": "^2.19.0",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-label": "^2.1.2",
     "@radix-ui/react-slot": "^1.1.2",
@@ -27,6 +27,7 @@
     "framer-motion": "^12.43.0",
     "lucide-react": "^0.475.0",
     "next": "16.3.3",
+    "openai": "^7.10.0",
     "pg": "^8.13.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",

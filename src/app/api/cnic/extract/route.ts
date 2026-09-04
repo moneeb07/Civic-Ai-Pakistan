@@ -3,8 +3,8 @@ import { NextResponse } from "next/server";
 import {
   CnicExtractionError,
   extractCnicFromImages,
-  isGeminiConfigured,
-} from "@/services/gemini/cnic-extractor";
+  isExtractorConfigured,
+} from "@/services/ai/cnic-extractor";
 import { formatCnic, isValidCnicFormat, maskCnic } from "@/lib/cnic";
 import { ADDRESS_CONFIDENCE_MIN, type GateFailure } from "@/lib/cnic-confidence";
 import { type SideFailure } from "@/lib/cnic-side-check";
@@ -66,7 +66,7 @@ const GATE_MESSAGES: Record<GateFailure, string> = {
 };
 
 export async function POST(request: Request) {
-  if (!isGeminiConfigured()) {
+  if (!isExtractorConfigured()) {
     return NextResponse.json(
       {
         success: false,

@@ -498,7 +498,42 @@ export const en = {
     analyzingBody: "CivicAI is checking what kind of problem this might be.",
     possibleIssue: "Possible {category}",
     confirmIssuePrompt: "Does this look like the problem you're reporting?",
-    confirmYes: "Yes, that's the problem",
+
+    /*
+     * The Urdu half of the confirmation step.
+     *
+     * These sit in the ENGLISH dictionary on purpose, and it is worth being
+     * clear why rather than treating it as a mistake to fix later. They are
+     * not a translation of the surrounding page — the page stays in English.
+     * They are the words a citizen who cannot read English HEARS, spoken
+     * aloud, at the one moment the app asks them to confirm something the AI
+     * decided. Moving them into a ur.ts that only loads when the whole
+     * interface switches to Urdu would silence exactly the person they exist
+     * for. When a real Urdu dictionary lands, these move into it and the
+     * spoken prompt keeps working in both.
+     *
+     * {problem} is the model's own Urdu sentence about the photograph.
+     */
+    confirmSpokenQuestion: "کیا آپ کو بھی یہی لگتا ہے؟",
+    // Names confirmYesUr verbatim — see the note on confirmYes.
+    confirmSpokenYes: "اگر ہاں، تو جاری رکھیں کا سبز بٹن دبائیں۔",
+    confirmSpokenNo: "اگر نہیں، تو مائیک کے بٹن پر کلک کرکے اپنا مسئلہ بتائیں۔",
+    confirmListenAgain: "دوبارہ سنیں",
+    confirmStopSpeaking: "روکیں",
+    confirmSpeakYourProblem: "اپنا مسئلہ بتائیں",
+    confirmVoiceAdded: "آپ کی بات محفوظ ہو گئی ہے۔",
+    /*
+     * The green button, in both scripts, and they must not drift apart.
+     *
+     * The spoken prompt tells the citizen to press "جاری رکھیں". If the button
+     * says anything else in Urdu, the instruction is useless to the person it
+     * was recorded for — they are being told to press a button that, as far as
+     * they can read, is not on the screen. So the Urdu half of this label and
+     * confirmSpokenYes below are one string in two places: change either and
+     * change both.
+     */
+    confirmYes: "Continue",
+    confirmYesUr: "جاری رکھیں",
     confirmNo: "No, try again",
     describeInstead: "Describe another problem",
     notDetectedTitle: "We couldn't identify a specific problem",

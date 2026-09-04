@@ -5,13 +5,14 @@ import {
   clip,
   MAX_TEXT,
   summariseContents,
-} from "../src/services/gemini/log-redact";
+} from "../src/services/ai/log-redact";
 
 /*
- * The Gemini transcript is written to disk, and the requests it summarises
+ * The model transcript is written to disk, and the requests it summarises
  * carry photographs of citizens' identity cards. So the rule that matters most
  * here is a negative one: image data must never reach the log, however the
- * SDK's `contents` happen to be shaped on the day.
+ * request happens to be shaped — which now means BOTH providers' shapes, since
+ * the app moved from Gemini to OpenAI and old log lines must still parse.
  *
  * Tested against log-redact.ts rather than log.ts because the latter imports
  * "server-only", which throws outside a Next.js bundle — the same split
@@ -83,6 +84,43 @@ describe("summariseContents", () => {
       ),
       ["instructions", "Image 1: front.", "<image/png>", "Image 2: back."],
     );
+  });
+
+  it("keeps OpenAI image payloads out of the log", () => {
+    // OpenAI sends images as a data: URL rather than Gemini's inlineData.
+    const payload = "B".repeat(4000);
+    const messages = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Read this CNIC." },
+          { type: "image_url", image_url: { url: `data:image/jpeg;base64,${payload}` } },
+        ],
+      },
+    ];
+
+    const summary = summariseContents(messages);
+    const serialised = JSON.stringify(summary);
+
+    assert.equal(serialised.includes(payload), false);
+    assert.equal(serialised.includes("BBBB"), false);
+    assert.deepEqual(summary[0], { kind: "text", text: "Read this CNIC." });
+    assert.equal(summary[1].kind, "binary");
+    if (summary[1].kind !== "binary") return;
+    assert.equal(summary[1].mimeType, "image/jpeg");
+    assert.ok(summary[1].bytes > 2900 && summary[1].bytes < 3100);
+  });
+
+  it("reads a plain string message body", () => {
+    // OpenAI allows content to be a bare string rather than an array of parts.
+    assert.deepEqual(summariseContents([{ role: "user", content: "hello" }]), [
+      { kind: "text", text: "hello" },
+    ]);
+  });
+
+  it("still parses Gemini-shaped entries, so old logs keep working", () => {
+    const messages = [{ role: "user", parts: [{ text: "legacy" }] }];
+    assert.deepEqual(summariseContents(messages), [{ kind: "text", text: "legacy" }]);
   });
 
   it("survives malformed input instead of throwing", () => {

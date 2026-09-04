@@ -1,4 +1,4 @@
-// MUST be first: everything below reads GEMINI_API_KEY as it is constructed.
+// MUST be first: everything below reads the provider's key as it is constructed.
 import "./load-env.mts";
 
 import { readFileSync, existsSync } from "node:fs";
@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { basename } from "node:path";
 
 import { validateCnic, type CnicSide } from "../src/lib/cnic/validation";
+import { aiConfig } from "../src/services/ai/chains";
 
 /*
  * The validator is marked `server-only`, a package whose whole job is to throw
@@ -27,7 +28,7 @@ require.cache[serverOnlyPath] = {
 } as NodeJS.Module;
 
 const { validateCnicImage, CnicValidationError } = await import(
-  "../src/services/gemini/cnic-validator"
+  "../src/services/ai/cnic-validator"
 );
 
 /*
@@ -137,15 +138,19 @@ would be told — never the contents of the card.
     return;
   }
 
-  if (!process.env.GEMINI_API_KEY) {
-    console.log("GEMINI_API_KEY is not set. Put it in .env.local and try again.");
+  const config = aiConfig();
+  if (!config.ok) {
+    console.log(config.reason);
     process.exitCode = 1;
     return;
   }
 
-  // A key is a secret: enough to confirm WHICH key is loaded, never enough to use.
-  const key = process.env.GEMINI_API_KEY;
-  console.log(`\nUsing key …${key.slice(-6)}  (${key.length} chars)\n`);
+  // A key is a secret: enough to confirm WHICH key is loaded, never enough to
+  // use. The provider is named alongside it because the same check run against
+  // three providers is the point — an unlabelled verdict is not comparable.
+  console.log(
+    `\n${config.label} · key …${config.apiKey.slice(-6)} (${config.apiKey.length} chars)\n`,
+  );
 
   // Pair each path with its optional side argument.
   const jobs: { path: string; side: CnicSide }[] = [];

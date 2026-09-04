@@ -1,6 +1,5 @@
 import "server-only";
 
-import { Type } from "@google/genai";
 
 import {
   CIVIC_CATEGORIES,
@@ -9,8 +8,8 @@ import {
   type CivicCategory,
   type GeneratedComplaint,
 } from "@/lib/report/schema";
-import { geminiClient } from "@/services/gemini/client";
-import { GEMINI_MODEL } from "@/services/gemini/model";
+import { aiClient } from "@/services/ai/client";
+import { aiConfig, isAiConfigured } from "@/services/ai/model";
 
 /*
  * Turns everything a citizen provided — a category, what the vision step
@@ -64,15 +63,20 @@ STRICT RULES — do not violate these:
 
 Respond with the structured fields only.`;
 
+/* OpenAI structured output, strict mode: every property required, no extras. */
 const responseSchema = {
-  type: Type.OBJECT,
-  properties: {
-    title: { type: Type.STRING },
-    description: { type: Type.STRING },
-    severity: { type: Type.STRING, enum: [...SEVERITIES] },
+  name: "generated_complaint",
+  schema: {
+    type: "object",
+    properties: {
+      title: { type: "string" },
+      description: { type: "string" },
+      severity: { type: "string", enum: [...SEVERITIES] },
+    },
+    required: ["title", "description", "severity"],
+    additionalProperties: false,
   },
-  required: ["title", "description", "severity"],
-};
+} as const;
 
 export type ComplaintGenerationFailure =
   | "not_configured"
@@ -90,31 +94,29 @@ export interface ComplaintGenerationProvider {
   generate(input: ComplaintGenerationInput): Promise<GeneratedComplaint>;
 }
 
-class GeminiComplaintGenerationProvider implements ComplaintGenerationProvider {
+class AiComplaintGenerationProvider implements ComplaintGenerationProvider {
   async generate(input: ComplaintGenerationInput): Promise<GeneratedComplaint> {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new ComplaintGenerationError("not_configured", "GEMINI_API_KEY is not configured.");
+    const config = aiConfig();
+    if (!config.ok) {
+      throw new ComplaintGenerationError("not_configured", config.reason);
     }
 
     if (!CIVIC_CATEGORIES.includes(input.category)) {
       throw new ComplaintGenerationError("malformed_response", "Unknown category.");
     }
 
-    const client = geminiClient("complaint-generate", apiKey);
+    const client = aiClient("complaint-generate", config);
 
     let rawText: string | undefined;
     try {
-      const response = await client.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [{ role: "user", parts: [{ text: PROMPT_TEMPLATE(input) }] }],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema,
-          temperature: 0.2,
-        },
+      rawText = await client.complete({
+        task: "text",
+        messages: [{ role: "user", content: PROMPT_TEMPLATE(input) }],
+        schema: responseSchema,
+        // A shade of warmth: this writes prose a citizen will read, unlike the
+        // extraction paths, which are pinned to 0.
+        temperature: 0.2,
       });
-      rawText = response.text;
     } catch (error) {
       console.error(
         "[complaint-generator] upstream request failed:",
@@ -156,9 +158,9 @@ class GeminiComplaintGenerationProvider implements ComplaintGenerationProvider {
 }
 
 export function isComplaintGenerationConfigured(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY);
+  return isAiConfigured();
 }
 
 export function getComplaintGenerationProvider(): ComplaintGenerationProvider {
-  return new GeminiComplaintGenerationProvider();
+  return new AiComplaintGenerationProvider();
 }

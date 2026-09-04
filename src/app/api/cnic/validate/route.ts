@@ -4,7 +4,7 @@ import {
   CnicValidationError,
   isValidatorConfigured,
   validateCnicImage,
-} from "@/services/gemini/cnic-validator";
+} from "@/services/ai/cnic-validator";
 import { validateCnic, type CnicSide, type QualitySignals } from "@/lib/cnic/validation";
 import { getOrCreateRegistrationSession } from "@/lib/registration/session";
 

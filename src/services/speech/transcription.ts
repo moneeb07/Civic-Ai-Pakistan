@@ -1,47 +1,50 @@
 import "server-only";
 
-import { Type } from "@google/genai";
 
 import {
-  transcriptionResultSchema,
   type TranscriptionResult,
 } from "@/lib/report/schema";
-import { geminiClient } from "@/services/gemini/client";
-import { GEMINI_MODEL } from "@/services/gemini/model";
+import { aiClient } from "@/services/ai/client";
+import { aiConfig, isAiConfigured } from "@/services/ai/model";
 
 /*
  * Speech-to-text for a spoken complaint description.
  *
  * A SpeechToTextProvider interface for the same reason every other AI step in
- * this app has one: a real transcription vendor could replace this later
- * without the caller changing. Gemini's multimodal audio input is the one
- * real implementation — chosen over the browser's built-in Web Speech API
- * specifically because Web Speech's language support for Urdu, Punjabi,
- * Pashto, Sindhi, Balochi and Saraiki is inconsistent across browsers, and
- * this app promises to preserve exactly what was said, not approximate it.
+ * this app has one: the caller does not change when the vendor does. Which
+ * provider actually answers is decided by AI_PROVIDER and resolved inside the
+ * client — chosen over the browser's built-in Web Speech API specifically
+ * because Web Speech's language support for Urdu, Punjabi, Pashto, Sindhi,
+ * Balochi and Saraiki is inconsistent across browsers, and this app promises
+ * to preserve exactly what was said, not approximate it.
  */
 
 
-const PROMPT = `You are transcribing an audio recording of a Pakistani citizen describing a civic problem out loud — a pothole, garbage, a broken streetlight, or similar.
-
-Rules:
-1. Transcribe EXACTLY what is said, in the language and script it was actually spoken in. If the citizen spoke Urdu, transcribe in Urdu script — never translate to English, never transliterate. If they spoke English, transcribe in English. If they code-switched between languages mid-sentence (very common in Pakistan), transcribe it exactly as spoken, mixed.
-2. Do not clean up, formalize, or rephrase what was said. Do not add words that weren't spoken, even if they would "complete" the sentence.
-3. If the recording is silent, inaudible, too noisy, or you cannot make out real words with confidence, return null for "transcript" — do not guess at words you aren't sure of.
-4. "language" is your best-effort NAME for the language spoken (e.g. "Urdu", "English", "Punjabi", "mixed Urdu/English") — purely informational, it never changes the transcript itself.
-5. "confident" is true only if you are sure the transcript accurately captures what was said start to finish.
-
-Respond with the structured fields only.`;
-
-const responseSchema = {
-  type: Type.OBJECT,
-  properties: {
-    transcript: { type: Type.STRING, nullable: true },
-    language: { type: Type.STRING, nullable: true },
-    confident: { type: Type.BOOLEAN },
-  },
-  required: ["confident"],
-};
+/*
+ * The vocabulary hint, and why it is written in Urdu script.
+ *
+ * A transcription `prompt` is a STYLE and VOCABULARY sample, not an
+ * instruction channel — the model does not follow directions given here the
+ * way a chat model would. What it DOES do is continue in the register it is
+ * shown. So the hint is itself written in Urdu script, with the civic words
+ * this app actually receives: shown Urdu, the model keeps producing Urdu
+ * instead of drifting into a Roman transliteration that is neither language.
+ *
+ * That drift was the original complaint. Naming the language (in the client)
+ * decides how the audio is decoded; this decides what the output looks like.
+ * Both are needed — the language code alone still leaves the model free to
+ * romanise, and a hint alone still leaves it guessing which language it heard.
+ *
+ * The English clause stays because code-switching is genuinely constant here:
+ * a citizen says "streetlight" and "sewerage" in English mid-Urdu-sentence,
+ * and forcing those into Urdu script would be its own kind of mangling.
+ */
+const TRANSCRIPTION_HINT =
+  "ایک پاکستانی شہری اپنے علاقے کا مسئلہ بتا رہا ہے: سڑک میں گڑھا، کچرا، ٹوٹی ہوئی " +
+  "اسٹریٹ لائٹ، پانی کی لیکیج، سیوریج کا مسئلہ، کھلا مین ہول، ٹوٹا ہوا فٹ پاتھ۔ " +
+  "بات چیت اردو میں ہے اور بیچ میں انگریزی الفاظ بھی آ سکتے ہیں۔ " +
+  "A Pakistani citizen describing a civic problem, speaking Urdu and " +
+  "code-switching into English for words like streetlight, sewerage and manhole.";
 
 export type TranscriptionFailure = "not_configured" | "upstream_error" | "malformed_response";
 
@@ -56,35 +59,18 @@ export interface SpeechToTextProvider {
   transcribe(bytes: Buffer, mimeType: string): Promise<TranscriptionResult>;
 }
 
-class GeminiSpeechToTextProvider implements SpeechToTextProvider {
+class AiSpeechToTextProvider implements SpeechToTextProvider {
   async transcribe(bytes: Buffer, mimeType: string): Promise<TranscriptionResult> {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new TranscriptionError("not_configured", "GEMINI_API_KEY is not configured.");
+    const config = aiConfig();
+    if (!config.ok) {
+      throw new TranscriptionError("not_configured", config.reason);
     }
 
-    const client = geminiClient("speech-transcribe", apiKey);
+    const client = aiClient("speech-transcribe", config);
 
-    let rawText: string | undefined;
+    let spoken: { text: string; language: string | null };
     try {
-      const response = await client.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              { text: PROMPT },
-              { inlineData: { mimeType, data: bytes.toString("base64") } },
-            ],
-          },
-        ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema,
-          temperature: 0,
-        },
-      });
-      rawText = response.text;
+      spoken = await client.transcribe({ bytes, mimeType, hint: TRANSCRIPTION_HINT });
     } catch (error) {
       console.error(
         "[transcription] upstream request failed:",
@@ -93,30 +79,43 @@ class GeminiSpeechToTextProvider implements SpeechToTextProvider {
       throw new TranscriptionError("upstream_error", "The transcription service could not be reached.");
     }
 
-    if (!rawText) {
-      throw new TranscriptionError("malformed_response", "The transcription service returned an empty response.");
-    }
+    const transcript = spoken.text.trim();
 
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(rawText);
-    } catch {
-      throw new TranscriptionError("malformed_response", "The transcription service returned invalid JSON.");
-    }
+    /*
+     * A NOTE ON `confident`, because its meaning genuinely changed here.
+     *
+     * The original provider was asked to judge its own certainty and report
+     * it as a field. The model is now asked for the transcript alone, so no
+     * such judgment comes back. Rather than invent a confidence score and
+     * dress a guess up as the model's opinion, this derives the one thing
+     * that can honestly be observed: whether anything intelligible came back
+     * at all.
+     *
+     * That preserves what the flag is actually USED for. The route treats
+     * "no transcript or not confident" as "we couldn't understand you, please
+     * type it instead", and silence or noise still lands there, because these
+     * models return an empty or near-empty string for both.
+     */
+    const confident = transcript.length > 0;
 
-    const result = transcriptionResultSchema.safeParse(parsed);
-    if (!result.success) {
-      throw new TranscriptionError("malformed_response", "The transcription service returned unexpected fields.");
-    }
-
-    return result.data;
+    return {
+      transcript: confident ? transcript : null,
+      /*
+       * What the model was TOLD to expect, not a detection it performed —
+       * which is the honest label, since naming the language up front is
+       * exactly how this stopped mangling Urdu. Null when nothing usable came
+       * back, so an empty transcript is never filed as confidently Urdu.
+       */
+      language: confident ? spoken.language : null,
+      confident,
+    };
   }
 }
 
 export function isSpeechToTextConfigured(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY);
+  return isAiConfigured();
 }
 
 export function getSpeechToTextProvider(): SpeechToTextProvider {
-  return new GeminiSpeechToTextProvider();
+  return new AiSpeechToTextProvider();
 }

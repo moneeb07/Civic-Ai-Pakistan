@@ -1,21 +1,19 @@
 import "server-only";
 
-import { Type } from "@google/genai";
-
 import {
   CIVIC_CATEGORIES,
   visionResultSchema,
   type VisionResult,
 } from "@/lib/report/schema";
-import { geminiClient } from "@/services/gemini/client";
-import { GEMINI_MODEL } from "@/services/gemini/model";
+import { aiClient } from "@/services/ai/client";
+import { aiConfig, isAiConfigured } from "@/services/ai/model";
 
 /*
  * Civic-issue image classification.
  *
  * A VisionProvider interface, not a bare function, so a different vision
  * model can be substituted later without touching any caller — the same
- * reasoning the CNIC extractor documents for its own shape. Gemini is the one
+ * reasoning the CNIC extractor documents for its own shape. OpenAI is the one
  * real implementation today because it is already configured and working for
  * this account; there is no separate VISION_API_KEY to invent.
  */
@@ -33,27 +31,44 @@ Rules:
 5. "evidence" is 1-3 short, literal phrases describing what you actually see (e.g. "depression in the road surface with exposed gravel", "standing water pooling near a drain") — never a conclusion, a measurement you can't verify, or a guess about severity.
 6. "readable" is false if the image is too dark, too blurred, or too zoomed/cropped to say anything reliable about it at all. If readable is false, detected must also be false.
 7. Never invent a location, a road name, a sector, a city, or an authority — none of that is in the photo.
+8. "summaryUr" is ONE plain Urdu sentence, in the Urdu script, saying what the photo shows — the way you would describe it out loud to the person who took it. It is read aloud to a citizen who may not read English, so: no English words, no transliteration, no category codes, no bullet points, no confidence figures. Example: "سڑک پر ایک گڑھا ہے جس میں پانی کھڑا ہے۔" It must say the same thing as "evidence" and claim nothing more. Use null only when detected is false.
 
 Respond with the structured fields only.`;
 
+/*
+ * OpenAI structured output, in strict mode.
+ *
+ * Strict mode has two rules Gemini's schema did not: every property must be
+ * listed in `required`, and nullability is expressed as a type union rather
+ * than a `nullable` flag. So "category" is `["string", "null"]` and appears in
+ * required — the model must always emit the key, and is allowed to emit null
+ * for it, which is exactly the old contract said a different way.
+ */
 const responseSchema = {
-  type: Type.OBJECT,
-  properties: {
-    detected: { type: Type.BOOLEAN },
-    category: {
-      type: Type.STRING,
-      enum: [...CIVIC_CATEGORIES],
-      nullable: true,
+  name: "civic_vision_result",
+  schema: {
+    type: "object",
+    properties: {
+      detected: { type: "boolean" },
+      category: { type: ["string", "null"], enum: [...CIVIC_CATEGORIES, null] },
+      confidence: { type: "number" },
+      evidence: { type: "array", items: { type: "string" } },
+      readable: { type: "boolean" },
+      summaryUr: { type: ["string", "null"] },
     },
-    confidence: { type: Type.NUMBER },
-    evidence: {
-      type: Type.ARRAY,
-      items: { type: Type.STRING },
-    },
-    readable: { type: Type.BOOLEAN },
+    required: ["detected", "category", "confidence", "evidence", "readable", "summaryUr"],
+    additionalProperties: false,
   },
-  required: ["detected", "confidence", "evidence", "readable"],
-};
+} as const;
+
+/** Parses without throwing, so a validate predicate can stay an expression. */
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
 
 export type VisionFailure = "not_configured" | "upstream_error" | "malformed_response";
 
@@ -68,35 +83,37 @@ export interface VisionProvider {
   analyzeImage(bytes: Buffer, mimeType: string): Promise<VisionResult>;
 }
 
-class GeminiVisionProvider implements VisionProvider {
+class AiVisionProvider implements VisionProvider {
   async analyzeImage(bytes: Buffer, mimeType: string): Promise<VisionResult> {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new VisionAnalysisError("not_configured", "GEMINI_API_KEY is not configured.");
+    const config = aiConfig();
+    if (!config.ok) {
+      throw new VisionAnalysisError("not_configured", config.reason);
     }
 
-    const client = geminiClient("report-vision", apiKey);
+    const client = aiClient("report-vision", config);
 
     let rawText: string | undefined;
     try {
-      const response = await client.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: [
+      rawText = await client.complete({
+        task: "vision",
+        messages: [
           {
             role: "user",
-            parts: [
-              { text: PROMPT },
-              { inlineData: { mimeType, data: bytes.toString("base64") } },
+            content: [
+              { type: "text", text: PROMPT },
+              {
+                type: "image_url",
+                image_url: { url: `data:${mimeType};base64,${bytes.toString("base64")}` },
+              },
             ],
           },
         ],
-        config: {
-          responseMimeType: "application/json",
-          responseSchema,
-          temperature: 0,
-        },
+        schema: responseSchema,
+        temperature: 0,
+        // A reply that will not survive the Zod parse below is a failed rung,
+        // so the client moves to the next model rather than surfacing an error.
+        validate: (text) => visionResultSchema.safeParse(safeJson(text)).success,
       });
-      rawText = response.text;
     } catch (error) {
       console.error(
         "[report-vision] upstream request failed:",
@@ -132,9 +149,9 @@ class GeminiVisionProvider implements VisionProvider {
 }
 
 export function isVisionConfigured(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY);
+  return isAiConfigured();
 }
 
 export function getVisionProvider(): VisionProvider {
-  return new GeminiVisionProvider();
+  return new AiVisionProvider();
 }

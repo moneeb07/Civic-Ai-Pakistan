@@ -1,11 +1,10 @@
 import "server-only";
 
-import { Type } from "@google/genai";
 import { z } from "zod";
 
 import type { CnicSide, VisionReadability } from "@/lib/cnic/validation";
-import { geminiClient } from "@/services/gemini/client";
-import { GEMINI_MODEL } from "@/services/gemini/model";
+import { aiClient } from "@/services/ai/client";
+import { aiConfig, isAiConfigured } from "@/services/ai/model";
 
 /*
  * "Can this image actually be read?" — asked of one image, before anything is
@@ -62,52 +61,55 @@ OVERALL CONFIDENCE
 
 If the image is not a Pakistani identity card at all — a random photograph, a blank frame, a different document — set isPakistaniCnic to false and readability to "not_readable".`;
 
+/*
+ * Plain JSON Schema, not the provider SDK's enum types.
+ *
+ * Most free models on OpenRouter cannot enforce a schema, so this also travels
+ * in the prompt and the Zod parse below stays the real guarantee.
+ */
 const responseSchema = {
-  type: Type.OBJECT,
-  properties: {
-    isPakistaniCnic: { type: Type.BOOLEAN },
-    side: { type: Type.STRING, nullable: true },
-    readability: { type: Type.STRING },
-    confidence: { type: Type.NUMBER },
-    blurDetected: { type: Type.BOOLEAN },
-    glareDetected: { type: Type.BOOLEAN },
-    cropped: { type: Type.BOOLEAN },
-    perspectiveIssue: { type: Type.BOOLEAN },
-    fieldConfidence: {
-      type: Type.OBJECT,
-      properties: {
-        cnicNumber: { type: Type.NUMBER },
-        name: { type: Type.NUMBER },
-        fatherOrHusbandName: { type: Type.NUMBER },
-        gender: { type: Type.NUMBER },
-        dateOfBirth: { type: Type.NUMBER },
-        dateOfIssue: { type: Type.NUMBER },
-        dateOfExpiry: { type: Type.NUMBER },
-        presentAddress: { type: Type.NUMBER },
-        permanentAddress: { type: Type.NUMBER },
+  name: "cnic_image_validation",
+  schema: {
+    type: "object",
+    properties: {
+      isPakistaniCnic: { type: "boolean" },
+      side: { type: ["string", "null"] },
+      readability: { type: "string" },
+      confidence: { type: "number" },
+      blurDetected: { type: "boolean" },
+      glareDetected: { type: "boolean" },
+      cropped: { type: "boolean" },
+      perspectiveIssue: { type: "boolean" },
+      fieldConfidence: {
+        type: "object",
+        properties: {
+          cnicNumber: { type: "number" },
+          name: { type: "number" },
+          fatherOrHusbandName: { type: "number" },
+          gender: { type: "number" },
+          dateOfBirth: { type: "number" },
+          dateOfIssue: { type: "number" },
+          dateOfExpiry: { type: "number" },
+          presentAddress: { type: "number" },
+          permanentAddress: { type: "number" },
+        },
       },
+      unreadableFields: { type: "array", items: { type: "string" } },
+      userInstruction: { type: ["string", "null"] },
     },
-    unreadableFields: { type: Type.ARRAY, items: { type: Type.STRING } },
-    userInstruction: { type: Type.STRING, nullable: true },
-  },
-  /*
-   * fieldConfidence is REQUIRED, not optional.
-   *
-   * Left optional, the model simply omitted it — and since a field with no
-   * confidence counts as unread, a card it had just called "readable" at 0.95
-   * was rejected with every required field listed as unreadable. Demanding the
-   * map is the difference between the model declining to answer and the model
-   * saying the field is illegible.
-   */
-  required: ["isPakistaniCnic", "readability", "confidence", "fieldConfidence"],
+    /*
+     * fieldConfidence is REQUIRED, not optional.
+     *
+     * Left optional, the model simply omitted it — and since a field with no
+     * confidence counts as unread, a card it had just called "readable" at 0.95
+     * was rejected with every required field listed as unreadable. Demanding the
+     * map is the difference between the model declining to answer and the model
+     * saying the field is illegible.
+     */
+    required: ["isPakistaniCnic", "readability", "confidence", "fieldConfidence"],
+  } as Record<string, unknown>,
 };
 
-/*
- * The model's output is untrusted input. Anything malformed collapses to the
- * PESSIMISTIC value, never the optimistic one: a missing confidence is 0, a
- * missing flag is "problem present". A parser that defaults to "fine" would
- * turn a garbled response into an accepted scan.
- */
 const score = z.number().min(0).max(1).catch(0).optional();
 
 const payloadSchema = z.object({
@@ -187,100 +189,89 @@ export async function validateCnicImage(
   image: ValidationImage,
   expectedSide: CnicSide,
 ): Promise<VisionReadability> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new CnicValidationError("not_configured", "GEMINI_API_KEY is not configured.");
+  const config = aiConfig();
+  if (!config.ok) {
+    throw new CnicValidationError("not_configured", config.reason);
   }
 
-  const client = geminiClient("cnic-validate", apiKey);
+  const client = aiClient("cnic-validate", config);
 
-  const request = () =>
-    client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: VALIDATION_PROMPT },
-            {
-              text: `The citizen was asked to photograph the ${expectedSide} of the card. Report the side you actually see.`,
-            },
-            {
-              inlineData: {
-                mimeType: image.mimeType,
-                data: image.bytes.toString("base64"),
-              },
-            },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema,
-        // A judgement, not a creative task.
-        temperature: 0,
-      },
-    });
-
-  /*
-   * Retried, because the upstream is genuinely flaky.
-   *
-   * A transient 5xx or a dropped connection was surfacing to the citizen as
-   * "Picture is not readable" — telling somebody holding a perfectly clear
-   * card that their card is the problem. The two failures are not the same
-   * thing and must never share a message, so the call is retried here before
-   * anything is concluded about the image.
-   *
-   * Three attempts with a short backoff: enough to ride out a blip, short
-   * enough that somebody is not left staring at a spinner.
-   */
   let rawText: string | undefined;
   let lastError: unknown;
   let rateLimited = false;
   let dailyQuota = false;
   let retryAfterSeconds: number | undefined;
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const response = await request();
-      rawText = response.text;
-      break;
-    } catch (error) {
-      lastError = error;
-
-      /*
-       * A 429 is a quota decision, not a transient blip, and hammering it
-       * makes the quota worse. The API tells us how long to wait; that is
-       * reported to the citizen rather than burned in a retry loop they are
-       * left waiting through.
-       */
-      const message = error instanceof Error ? error.message : "";
-      if (message.includes('"code":429') || message.includes("RESOURCE_EXHAUSTED")) {
-        rateLimited = true;
-
-        /*
-         * A DAILY cap is not something to wait out.
-         *
-         * The API returns a `retryDelay` of half a minute even when the
-         * exhausted quota is `GenerateRequestsPerDayPerProjectPerModel`, and
-         * repeating that told people to "wait about 45 seconds and check
-         * again" for a limit that resets tomorrow. They waited, retried,
-         * failed, and reasonably concluded the app was broken.
-         *
-         * So the quota's own id decides the wording: a per-minute limit gets
-         * the countdown, a per-day limit gets the truth.
-         */
-        dailyQuota = /PerDay/i.test(message);
-
-        if (!dailyQuota) {
-          const match = /retry in ([\d.]+)s/i.exec(message);
-          if (match) retryAfterSeconds = Math.ceil(Number(match[1]));
+  /*
+   * No retry loop here any more, and that is a simplification rather than a
+   * removal of resilience.
+   *
+   * This used to retry the same model three times, because there was only one
+   * model to retry. The client now walks an ordered chain of DIFFERENT models
+   * and only gives up when every one of them has failed — which is strictly
+   * better than asking a busy model the same question three times. Layering
+   * the old loop on top would mean nine calls for one photograph.
+   *
+   * What must survive is the distinction the retry existed to protect: an
+   * upstream failure is not the same as an unreadable card, and telling
+   * somebody holding a perfectly clear CNIC that their card is the problem is
+   * the bug this code was written to prevent.
+   */
+  try {
+    rawText = await client.complete({
+      task: "vision",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: VALIDATION_PROMPT },
+            {
+              type: "text",
+              text: `The citizen was asked to photograph the ${expectedSide} of the card. Report the side you actually see.`,
+            },
+            {
+              type: "image_url",
+              image_url: { url: `data:${image.mimeType};base64,${image.bytes.toString("base64")}` },
+            },
+          ],
+        },
+      ],
+      schema: responseSchema,
+      // A judgement, not a creative task.
+      temperature: 0,
+      validate: (text: string) => {
+        try {
+          const parsed: unknown = JSON.parse(text);
+          return typeof parsed === "object" && parsed !== null && "readability" in parsed;
+        } catch {
+          return false;
         }
-        break;
-      }
+      },
+    });
+  } catch (error) {
+    lastError = error;
 
-      if (attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+    /*
+     * Rate limiting is read from the HTTP status the SDK reports, not by
+     * matching words in a message. The previous provider was identified by
+     * string-matching its error text, which broke the moment the provider
+     * changed; a 429 is a 429 whoever sends it.
+     *
+     * OpenRouter's free tier has both a short-window limit and a daily one.
+     * Only the first is worth waiting out, so a daily cap is told plainly
+     * rather than dressed up as "try again in 45 seconds" for something that
+     * resets tomorrow.
+     */
+    const status = (error as { status?: number } | null)?.status;
+    const message = error instanceof Error ? error.message : "";
+
+    if (status === 429 || /\b429\b|rate.?limit/i.test(message)) {
+      rateLimited = true;
+      dailyQuota = /per.?day|daily/i.test(message);
+
+      if (!dailyQuota) {
+        const match = /retry(?:-| )after[":\s]+([\d.]+)/i.exec(message);
+        if (match) retryAfterSeconds = Math.ceil(Number(match[1]));
       }
     }
   }
@@ -339,5 +330,5 @@ export async function validateCnicImage(
 }
 
 export function isValidatorConfigured(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY);
+  return isAiConfigured();
 }

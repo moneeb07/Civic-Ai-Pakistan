@@ -1,9 +1,8 @@
 import "server-only";
 
-import { Type } from "@google/genai";
 import { z } from "zod";
-import { geminiClient } from "@/services/gemini/client";
-import { GEMINI_MODEL } from "@/services/gemini/model";
+import { aiClient, type ChatContentPart } from "@/services/ai/client";
+import { aiConfig, isAiConfigured } from "@/services/ai/model";
 
 /*
  * CNIC extraction service.
@@ -86,71 +85,82 @@ SIDE IDENTIFICATION — do this before reading any field:
 
 If neither image is a Pakistani CNIC at all, set readable to false and return null for every field.`;
 
+/*
+ * Plain JSON Schema, not the provider SDK's enum types.
+ *
+ * On OpenRouter's free tier almost nothing enforces a schema, so this travels
+ * in the prompt for most models rather than being applied by the provider.
+ * That makes the Zod validation below the real guarantee — it was already
+ * there as a second line of defence and is now the first.
+ *
+ * `nullable` becomes a type union, which is how JSON Schema says it and what
+ * the strict-mode models expect.
+ */
+const nullableString = { type: ["string", "null"] } as const;
+
+const addressPropertiesJson = {
+  raw: nullableString,
+  houseNumber: nullableString,
+  streetOrMohalla: nullableString,
+  sector: nullableString,
+  district: nullableString,
+  city: nullableString,
+} as const;
+
 const romanAddressSchema = {
-  type: Type.OBJECT,
-  nullable: true,
-  properties: {
-    raw: { type: Type.STRING, nullable: true },
-    houseNumber: { type: Type.STRING, nullable: true },
-    streetOrMohalla: { type: Type.STRING, nullable: true },
-    sector: { type: Type.STRING, nullable: true },
-    district: { type: Type.STRING, nullable: true },
-    city: { type: Type.STRING, nullable: true },
-  },
-};
+  type: ["object", "null"],
+  properties: { ...addressPropertiesJson },
+} as const;
 
 const addressPartsSchema = {
-  type: Type.OBJECT,
-  nullable: true,
+  type: ["object", "null"],
   properties: {
-    raw: { type: Type.STRING, nullable: true },
-    houseNumber: { type: Type.STRING, nullable: true },
-    streetOrMohalla: { type: Type.STRING, nullable: true },
-    sector: { type: Type.STRING, nullable: true },
-    district: { type: Type.STRING, nullable: true },
-    city: { type: Type.STRING, nullable: true },
+    ...addressPropertiesJson,
     roman: romanAddressSchema,
-    confidence: { type: Type.NUMBER },
+    confidence: { type: "number" },
   },
-};
+} as const;
 
 const fieldConfidenceSchema = {
-  type: Type.OBJECT,
+  type: "object",
   properties: {
-    fullName: { type: Type.NUMBER },
-    fatherName: { type: Type.NUMBER },
-    cnicNumber: { type: Type.NUMBER },
-    dateOfBirth: { type: Type.NUMBER },
-    dateOfIssue: { type: Type.NUMBER },
-    dateOfExpiry: { type: Type.NUMBER },
-    gender: { type: Type.NUMBER },
-    nationality: { type: Type.NUMBER },
+    fullName: { type: "number" },
+    fatherName: { type: "number" },
+    cnicNumber: { type: "number" },
+    dateOfBirth: { type: "number" },
+    dateOfIssue: { type: "number" },
+    dateOfExpiry: { type: "number" },
+    gender: { type: "number" },
+    nationality: { type: "number" },
   },
-};
+} as const;
 
 const extractionResponseSchema = {
-  type: Type.OBJECT,
-  properties: {
-    readable: { type: Type.BOOLEAN },
-    frontReadable: { type: Type.BOOLEAN, nullable: true },
-    backReadable: { type: Type.BOOLEAN, nullable: true },
-    /* Which side each image ACTUALLY shows — see prompt rules 21-23. */
-    frontImageSide: { type: Type.STRING, nullable: true },
-    backImageSide: { type: Type.STRING, nullable: true },
-    confidence: { type: Type.NUMBER },
-    fieldConfidence: fieldConfidenceSchema,
-    fullName: { type: Type.STRING, nullable: true },
-    fatherName: { type: Type.STRING, nullable: true },
-    cnicNumber: { type: Type.STRING, nullable: true },
-    dateOfBirth: { type: Type.STRING, nullable: true },
-    dateOfIssue: { type: Type.STRING, nullable: true },
-    dateOfExpiry: { type: Type.STRING, nullable: true },
-    gender: { type: Type.STRING, nullable: true },
-    nationality: { type: Type.STRING, nullable: true },
-    presentAddress: addressPartsSchema,
-    permanentAddress: addressPartsSchema,
-  },
-  required: ["readable", "confidence"],
+  name: "cnic_extraction",
+  schema: {
+    type: "object",
+    properties: {
+      readable: { type: "boolean" },
+      frontReadable: { type: ["boolean", "null"] },
+      backReadable: { type: ["boolean", "null"] },
+      /* Which side each image ACTUALLY shows — see prompt rules 21-23. */
+      frontImageSide: nullableString,
+      backImageSide: nullableString,
+      confidence: { type: "number" },
+      fieldConfidence: fieldConfidenceSchema,
+      fullName: nullableString,
+      fatherName: nullableString,
+      cnicNumber: nullableString,
+      dateOfBirth: nullableString,
+      dateOfIssue: nullableString,
+      dateOfExpiry: nullableString,
+      gender: nullableString,
+      nationality: nullableString,
+      presentAddress: addressPartsSchema,
+      permanentAddress: addressPartsSchema,
+    },
+    required: ["readable", "confidence"],
+  } as Record<string, unknown>,
 };
 
 /*
@@ -232,7 +242,7 @@ const observedSideSchema = z
   .optional()
   .catch(null);
 
-const geminiPayloadSchema = z.object({
+const extractionPayloadSchema = z.object({
   readable: z.boolean(),
   // Per-side, so a retake never has to guess or re-ask for a side that was
   // already clear. Absent/malformed is treated as "no signal" (null), never
@@ -350,8 +360,8 @@ export class CnicExtractionError extends Error {
   }
 }
 
-export function isGeminiConfigured(): boolean {
-  return Boolean(process.env.GEMINI_API_KEY);
+export function isExtractorConfigured(): boolean {
+  return isAiConfigured();
 }
 
 /** "Male" / "Female" / null — anything else the model says is discarded. */
@@ -420,48 +430,57 @@ export async function extractCnicFromImages(
   front: CnicImage,
   back?: CnicImage,
 ): Promise<CnicExtraction> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const config = aiConfig();
 
-  if (!apiKey) {
-    throw new CnicExtractionError(
-      "not_configured",
-      "GEMINI_API_KEY is not configured.",
-    );
+  if (!config.ok) {
+    throw new CnicExtractionError("not_configured", config.reason);
   }
 
-  const client = geminiClient("cnic-extract", apiKey);
+  const client = aiClient("cnic-extract", config);
 
   let rawText: string | undefined;
 
   try {
-    const parts: Array<
-      | { text: string }
-      | { inlineData: { mimeType: string; data: string } }
-    > = [
-      { text: EXTRACTION_PROMPT },
-      { text: "Image 1: front of the CNIC." },
-      { inlineData: { mimeType: front.mimeType, data: front.bytes.toString("base64") } },
+    const parts: ChatContentPart[] = [
+      { type: "text", text: EXTRACTION_PROMPT },
+      { type: "text", text: "Image 1: front of the CNIC." },
+      {
+        type: "image_url",
+        image_url: { url: `data:${front.mimeType};base64,${front.bytes.toString("base64")}` },
+      },
     ];
 
     if (back) {
       parts.push(
-        { text: "Image 2: back of the CNIC." },
-        { inlineData: { mimeType: back.mimeType, data: back.bytes.toString("base64") } },
+        { type: "text", text: "Image 2: back of the CNIC." },
+        {
+          type: "image_url",
+          image_url: { url: `data:${back.mimeType};base64,${back.bytes.toString("base64")}` },
+        },
       );
     }
 
-    const response = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: [{ role: "user", parts }],
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: extractionResponseSchema,
-        // Near-deterministic: this is a reading task, not a creative one.
-        temperature: 0,
+    rawText = await client.complete({
+      task: "vision",
+      messages: [{ role: "user", content: parts }],
+      schema: extractionResponseSchema,
+      // Near-deterministic: this is a reading task, not a creative one.
+      temperature: 0,
+      /*
+       * A reply that cannot even be parsed is a failed rung, so the next
+       * model is tried. Only the shape is checked here — whether the CNIC was
+       * actually legible is the accuracy gate's judgment further down, and a
+       * model honestly reporting "unreadable" must NOT trigger a retry.
+       */
+      validate: (text) => {
+        try {
+          const parsed: unknown = JSON.parse(text);
+          return typeof parsed === "object" && parsed !== null && "readable" in parsed;
+        } catch {
+          return false;
+        }
       },
     });
-
-    rawText = response.text;
   } catch (error) {
     // Log the shape of the failure, never the image or its contents.
     console.error(
@@ -491,7 +510,7 @@ export async function extractCnicFromImages(
     );
   }
 
-  const result = geminiPayloadSchema.safeParse(parsed);
+  const result = extractionPayloadSchema.safeParse(parsed);
 
   if (!result.success) {
     throw new CnicExtractionError(

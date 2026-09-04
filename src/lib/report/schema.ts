@@ -51,6 +51,16 @@ export const visionResultSchema = z.object({
   evidence: z.array(z.string().max(160)).max(5),
   /** False when the photo itself is too unclear to say anything reliable. */
   readable: z.boolean(),
+  /**
+   * The same finding as one plain Urdu sentence, for the citizen to HEAR.
+   *
+   * Produced by the vision model in the same call rather than by a second
+   * translation request: the evidence list is written for a form, and reading
+   * three clipped English noun-phrases aloud is not how anyone describes a
+   * pothole to another person. Nullable because a model may omit it and a
+   * missing sentence must degrade to the written evidence, never to an error.
+   */
+  summaryUr: z.string().max(400).nullable().catch(null),
 });
 export type VisionResult = z.infer<typeof visionResultSchema>;
 

@@ -7,6 +7,9 @@ import { useAssistedMode } from "./assisted-mode-provider";
 /*
  * Voice guidance, via the browser's built-in speech synthesis.
  *
+ * Reads in an Urdu voice where the device has one and a Hindi voice where it
+ * does not — see VOICE_PREFERENCE below for why that substitution works.
+ *
  * Speech is generated on the device: nothing a citizen sees or types is sent to
  * a speech service, and no audio is recorded. The assistant only ever reads
  * fixed instructional phrases from the dictionary — it cannot be handed a
@@ -32,9 +35,46 @@ const supportedOnClient = () =>
   typeof window !== "undefined" && "speechSynthesis" in window;
 const supportedOnServer = () => false;
 
-export function useVoiceGuidance(): VoiceGuidance {
-  const { enabled } = useAssistedMode();
+/*
+ * Which installed voice reads the instructions, in order of preference.
+ *
+ * Urdu first, because the phrases are Roman Urdu and an Urdu voice is what
+ * they were written for. Hindi second, and that is the whole point of this
+ * list rather than a lone lookup: spoken Hindi and Urdu are close to the same
+ * language, so a Hindi voice reading Roman Urdu is genuinely intelligible,
+ * where the English default that browsers otherwise fall back to pronounces
+ * "gaddha" and "shukriya" as nonsense.
+ *
+ * Most Android and Windows installs ship a Hindi voice and no Urdu one, so in
+ * practice this second rung is the one that usually answers.
+ */
+const VOICE_PREFERENCE = ["ur", "hi"];
 
+function pickVoice(
+  voices: SpeechSynthesisVoice[],
+): { voice: SpeechSynthesisVoice; language: string } | null {
+  for (const language of VOICE_PREFERENCE) {
+    const voice = voices.find((candidate) =>
+      candidate.lang?.toLowerCase().startsWith(language),
+    );
+    if (voice) return { voice, language };
+  }
+  // No match: the caller asks for ur-PK anyway and lets the browser decide,
+  // which is still better than silently reading it as English.
+  return null;
+}
+
+/**
+ * Speaking, with no policy attached.
+ *
+ * Split out from useVoiceGuidance because two callers want the same voice for
+ * genuinely different reasons. Assisted Mode reads UI instructions to citizens
+ * who asked for that help. The photo-confirmation step reads back what the AI
+ * believes it is looking at — and that is not an accessibility aid, it is the
+ * question being asked, so it must not be silent for someone who never turned
+ * Assisted Mode on. Same voice selection, same cancellation, different gate.
+ */
+export function useSpeech(): VoiceGuidance {
   const supported = React.useSyncExternalStore(
     neverChanges,
     supportedOnClient,
@@ -51,22 +91,24 @@ export function useVoiceGuidance(): VoiceGuidance {
 
   const speak = React.useCallback(
     (phrase: string) => {
-      if (!enabled) return;
       if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
       if (!phrase) return;
 
       window.speechSynthesis.cancel();
 
       const utterance = new SpeechSynthesisUtterance(phrase);
-      // Roman Urdu read by an Urdu voice where the device has one; browsers
-      // fall back to the default voice otherwise.
-      utterance.lang = "ur-PK";
       utterance.rate = 0.92;
 
-      const urduVoice = window.speechSynthesis
-        .getVoices()
-        .find((voice) => voice.lang?.toLowerCase().startsWith("ur"));
-      if (urduVoice) utterance.voice = urduVoice;
+      const chosen = pickVoice(window.speechSynthesis.getVoices());
+      if (chosen) {
+        utterance.voice = chosen.voice;
+        // Set from the chosen voice rather than hardcoded: asking for ur-PK
+        // while handing the engine a Hindi voice gives some browsers a
+        // mismatch they resolve by ignoring the voice entirely.
+        utterance.lang = chosen.voice.lang;
+      } else {
+        utterance.lang = "ur-PK";
+      }
 
       utterance.onstart = () => setSpeaking(true);
       utterance.onend = () => setSpeaking(false);
@@ -74,13 +116,35 @@ export function useVoiceGuidance(): VoiceGuidance {
 
       window.speechSynthesis.speak(utterance);
     },
-    [enabled],
+    [],
   );
 
   // Never leave a phrase playing after the citizen navigates away.
   React.useEffect(() => stop, [stop]);
 
   return { supported, speaking, speak, stop };
+}
+
+/**
+ * Speaking, gated on Assisted Mode.
+ *
+ * The original hook, unchanged in behaviour: `speak` does nothing when the
+ * citizen has not turned Assisted Mode on. Kept as the default for UI
+ * narration so no existing screen starts talking unasked.
+ */
+export function useVoiceGuidance(): VoiceGuidance {
+  const { enabled } = useAssistedMode();
+  const speech = useSpeech();
+
+  const speak = React.useCallback(
+    (phrase: string) => {
+      if (!enabled) return;
+      speech.speak(phrase);
+    },
+    [enabled, speech],
+  );
+
+  return { ...speech, speak };
 }
 
 /** Speaks a step's instruction once when the screen opens. */
