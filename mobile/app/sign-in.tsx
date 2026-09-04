@@ -1,10 +1,11 @@
 import * as React from "react";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Redirect } from "expo-router";
+import { Redirect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSession } from "@/context/session";
 import { Body, Button, ErrorNote, Field, Screen, Title } from "@/components/ui";
+import { Pressable } from "react-native";
 import { colors, spacing } from "@/theme";
 
 /*
@@ -19,6 +20,17 @@ import { colors, spacing } from "@/theme";
 export default function SignInScreen() {
   const { me, signIn } = useSession();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+
+  /*
+   * `intent` only changes the words on this screen, never the request.
+   * Arriving from "Authority sign in" and from "Sign in" posts exactly the
+   * same credentials to exactly the same endpoint — what the account may do is
+   * read from its officer record by the server afterwards. If the copy and the
+   * permissions could ever disagree, the copy would be a lie.
+   */
+  const { intent, redeemed } = useLocalSearchParams<{ intent?: string; redeemed?: string }>();
+  const authority = intent === "authority";
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -53,11 +65,23 @@ export default function SignInScreen() {
           <Text style={styles.country}>Pakistan</Text>
 
           <View style={{ marginTop: spacing.xl }}>
-            <Title>Sign in</Title>
-            <Body muted>Report a problem, or work on your department&rsquo;s cases.</Body>
+            <Title>{authority ? "Authority sign in" : "Sign in"}</Title>
+            <Body muted>
+              {authority
+                ? "Use the account your authority's administrator issued you."
+                : "Report a problem, or work on your department's cases."}
+            </Body>
           </View>
 
           <View style={{ marginTop: spacing.xl }}>
+            {redeemed ? (
+              <View style={styles.redeemed}>
+                <Text style={styles.redeemedText}>
+                  Account activated. Sign in with the password you just chose.
+                </Text>
+              </View>
+            ) : null}
+
             {error ? <ErrorNote message={error} /> : null}
 
             <Field
@@ -84,6 +108,39 @@ export default function SignInScreen() {
               busy={busy}
               disabled={!email.trim() || !password}
             />
+
+            {authority ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push("/redeem")}
+                style={{ marginTop: spacing.lg, alignItems: "center" }}
+              >
+                <Text style={styles.link}>Have an invitation? Redeem it</Text>
+              </Pressable>
+            ) : null}
+
+            {/*
+              Only for citizens. An officer who has no account cannot make one
+              here — or anywhere — so offering it under "Authority sign in"
+              would advertise a door that never opens for them.
+            */}
+            {!authority ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.push("/register")}
+                style={{ marginTop: spacing.lg, alignItems: "center" }}
+              >
+                <Text style={styles.link}>New to CivicAI? Create an account</Text>
+              </Pressable>
+            ) : null}
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => router.replace("/welcome")}
+              style={{ marginTop: spacing.lg, alignItems: "center" }}
+            >
+              <Text style={styles.linkMuted}>Back</Text>
+            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -95,4 +152,15 @@ const styles = StyleSheet.create({
   content: { padding: spacing.xl, paddingBottom: spacing.xl * 2 },
   brand: { fontSize: 28, fontWeight: "800", color: colors.civic700, letterSpacing: -0.5 },
   country: { fontSize: 13, fontWeight: "600", color: colors.muted, letterSpacing: 1 },
+  link: { fontSize: 14, fontWeight: "600", color: colors.civic700 },
+  linkMuted: { fontSize: 14, fontWeight: "600", color: colors.muted },
+  redeemed: {
+    marginBottom: spacing.lg,
+    padding: spacing.md,
+    borderRadius: 12,
+    backgroundColor: colors.civic50,
+    borderWidth: 1,
+    borderColor: colors.civic200,
+  },
+  redeemedText: { fontSize: 13, color: colors.civic700, fontWeight: "600" },
 });

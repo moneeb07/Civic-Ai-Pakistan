@@ -7,14 +7,54 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "plugins": ["expo-router", "expo-secure-store"],
-    "ios": { "supportsTablet": true, "bundleIdentifier": "pk.civicai.app" },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-asset",
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "1.9.25"
+          }
+        }
+      ],
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "CivicAI uses the camera to scan your CNIC and photograph civic problems.",
+          "enableCodeScanner": false
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "pk.civicai.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "CivicAI uses the camera to scan your CNIC and photograph civic problems.",
+        "NSPhotoLibraryUsageDescription": "CivicAI uses your photo library so you can attach an existing photograph.",
+        "NSMicrophoneUsageDescription": "CivicAI uses the microphone so you can describe a problem by voice.",
+        "NSLocationWhenInUseUsageDescription": "CivicAI uses your location to tag where a problem is, only when you tap \"Use my location\"."
+      }
+    },
     "android": {
       "package": "pk.civicai.app",
-      "permissions": ["CAMERA", "ACCESS_FINE_LOCATION"]
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "RECORD_AUDIO",
+        "android.permission.CAMERA"
+      ]
     },
     "extra": {
-      "apiBaseUrl": "http://localhost:3000"
+      "apiBaseUrl": "http://10.202.47.109:3000",
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "4e8f0262-0954-4aa4-9da7-123dac83c1c5"
+      }
     }
   }
 }

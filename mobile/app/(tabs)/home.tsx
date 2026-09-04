@@ -1,6 +1,6 @@
 import * as React from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
-import { Redirect, useRouter } from "expo-router";
+import { Redirect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useSession } from "@/context/session";
@@ -12,14 +12,16 @@ import { colors, radius, spacing } from "@/theme";
 /*
  * The one screen that is both apps.
  *
+ * Sign-out moved to the Account tab: it does not belong one mis-tap away from
+ * the content, and it needs to be reachable from anywhere, not just here.
+ *
  * A citizen sees their reports. An officer sees their department's issues. An
  * officer who is also reporting a pothole outside their own house flicks the
  * switch — same session, same account, different view.
  */
 export default function HomeScreen() {
-  const { me, loading, mode, setMode, signOut } = useSession();
+  const { me, loading, mode, setMode } = useSession();
   const insets = useSafeAreaInsets();
-  const router = useRouter();
 
   if (loading) {
     return (
@@ -29,7 +31,7 @@ export default function HomeScreen() {
     );
   }
 
-  if (!me) return <Redirect href="/sign-in" />;
+  if (!me) return <Redirect href="/welcome" />;
 
   return (
     <Screen>
@@ -43,16 +45,6 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Sign out"
-          onPress={() => {
-            void signOut().then(() => router.replace("/sign-in"));
-          }}
-          style={styles.signOut}
-        >
-          <Text style={styles.signOutText}>Sign out</Text>
-        </Pressable>
       </View>
 
       {/*
@@ -99,8 +91,6 @@ const styles = StyleSheet.create({
   },
   name: { fontSize: 17, fontWeight: "700", color: colors.ink },
   subtitle: { fontSize: 13, color: colors.muted, marginTop: 1 },
-  signOut: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
-  signOutText: { fontSize: 13, fontWeight: "600", color: colors.civic700 },
   switcher: {
     flexDirection: "row",
     gap: spacing.xs,

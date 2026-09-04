@@ -1,9 +1,10 @@
 import "server-only";
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { z } from "zod";
 
 import type { CnicSide, VisionReadability } from "@/lib/cnic/validation";
+import { geminiClient } from "@/services/gemini/client";
 import { GEMINI_MODEL } from "@/services/gemini/model";
 
 /*
@@ -191,7 +192,7 @@ export async function validateCnicImage(
     throw new CnicValidationError("not_configured", "GEMINI_API_KEY is not configured.");
   }
 
-  const client = new GoogleGenAI({ apiKey });
+  const client = geminiClient("cnic-validate", apiKey);
 
   const request = () =>
     client.models.generateContent({

@@ -460,6 +460,98 @@ async function main() {
     }
   }
 
+  /*
+   * -- Demo volume ---------------------------------------------------------
+   *
+   * The three hand-written issues above tell the product's story, but they
+   * cannot demonstrate the league tables: with one to three issues each,
+   * every organisation, department and member sits below the evidence bar
+   * (10 / 5 / 3 in lib/gov/peer-performance.ts) and the whole table reads
+   * "not enough data to rank" — which is the honest answer, and a useless
+   * demo.
+   *
+   * So this generates enough routed work for the ranking to actually mean
+   * something, with DELIBERATELY uneven outcomes: Ahmed clears most of his
+   * queue, Bilal clears less of a smaller one, and the three departments
+   * finish at visibly different rates. Nothing here is a real citizen report
+   * — these are department-side issues only, which is why they carry a
+   * reportCount but no issueReport links.
+   */
+  console.log("  demo volume for the league tables");
+
+  const demoPlans = [
+    // dept index, terminal stage index, count, resolved, assignee key
+    { dept: 0, terminal: 3, count: 8, resolved: 6, assignee: "member" },
+    { dept: 0, terminal: 3, count: 6, resolved: 2, assignee: "member2" },
+    { dept: 1, terminal: 3, count: 8, resolved: 6, assignee: null },
+    { dept: 2, terminal: 2, count: 8, resolved: 3, assignee: null },
+  ];
+
+  let demoSequence = 100;
+
+  for (const plan of demoPlans) {
+    const dept = departments[plan.dept]!;
+
+    for (let n = 0; n < plan.count; n += 1) {
+      demoSequence += 1;
+      const key = `demo_${demoSequence}`;
+      const demoIssueId = id("issue", key);
+      const isResolved = n < plan.resolved;
+      // Unresolved work is spread across the earlier stages, not parked on one.
+      const stage = isResolved ? plan.terminal : n % Math.max(plan.terminal, 1);
+
+      await db.insert(collabSchema.civicIssue).values({
+        id: demoIssueId,
+        issueCode: `CIV-CDA-${String(demoSequence).padStart(6, "0")}`,
+        orgId,
+        deptId: dept.id,
+        category: dept.handlesCategories[0]!,
+        title: `${dept.name} case ${demoSequence}`,
+        description: "Seeded so the performance tables have enough history to rank.",
+        severity: n % 3 === 0 ? "HIGH" : "MEDIUM",
+        latitude: 33.68 + n / 1000,
+        longitude: 73.02 + n / 1000,
+        locationLabel: `Sector G-${10 + (n % 4)}, Islamabad`,
+        reportCount: 1 + (n % 3),
+        routingConfidence: 0.9,
+        routingRationale: "Category maps to this department's remit.",
+        routingSource: "ai",
+      });
+
+      const assignmentId = id("assign", key);
+
+      await db.insert(govSchema.complaintAssignment).values({
+        id: assignmentId,
+        issueId: demoIssueId,
+        orgId,
+        deptId: dept.id,
+        currentStageId: id("stage", `${dept.id}_${stage}`),
+        // Null where the department has no members seeded: routed into the
+        // workflow, not yet on a person's desk. That is a real state.
+        assignedOfficerId: plan.assignee ? officerIds[plan.assignee]! : null,
+        aiSuggestedOrgId: orgId,
+        aiSuggestedDeptId: dept.id,
+        aiConfidence: 0.9,
+        aiReasoning: "Category maps to this department's remit.",
+        aiSuggestionSource: "ai",
+      });
+
+      for (let position = 0; position <= stage; position += 1) {
+        const enteredAt = new Date(Date.now() - (stage - position + 1) * 86_400_000);
+        await db.insert(govSchema.complaintStageProgress).values({
+          id: id("prog", `${key}_${position}`),
+          assignmentId,
+          stageId: id("stage", `${dept.id}_${position}`),
+          enteredAt,
+          completedAt: position < stage ? new Date(enteredAt.getTime() + 43_200_000) : null,
+          completedByOfficerId:
+            position < stage && plan.assignee ? officerIds[plan.assignee]! : null,
+          note: position < stage ? "Stage completed." : null,
+        });
+      }
+    }
+  }
+
   // -- A live discussion on the pothole issue ------------------------------
   console.log("  discussion + notifications");
 
@@ -585,8 +677,17 @@ async function main() {
  * handle, which for the node-postgres driver IS the pg Pool.
  */
 async function closePool() {
-  const client = (db as unknown as { $client?: { end?: () => Promise<void> } }).$client;
+  const client = (db as unknown as {
+    $client?: { end?: () => Promise<void>; close?: () => Promise<void> };
+  }).$client;
+
+  // node-postgres exposes end(); PGlite exposes close(). Only end() was
+  // handled, so against the embedded development database NOTHING was closed
+  // and process.exit(0) tore the process down with PGlite's WASM buffers
+  // unflushed — leaving a data directory the next process cannot open at all
+  // ("RuntimeError: Aborted()" on the first query). Close whichever exists.
   if (typeof client?.end === "function") await client.end();
+  else if (typeof client?.close === "function") await client.close();
 }
 
 main()

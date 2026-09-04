@@ -5,6 +5,12 @@
  *   npm run db:migrate
  */
 
+// MUST be first: see scripts/load-env.mts. Without this, a DATABASE_URL set
+// only in .env.local is invisible here — standalone tsx scripts don't load it
+// automatically the way Next.js does — and this silently falls through to the
+// PGlite branch below instead of the real database, with no error at all.
+import "./load-env.mts";
+
 const MIGRATIONS_FOLDER = "./drizzle";
 const LOCAL_DATA_DIR = "./.data/civicai";
 

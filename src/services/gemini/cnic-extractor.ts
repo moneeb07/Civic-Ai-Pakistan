@@ -1,7 +1,8 @@
 import "server-only";
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 import { z } from "zod";
+import { geminiClient } from "@/services/gemini/client";
 import { GEMINI_MODEL } from "@/services/gemini/model";
 
 /*
@@ -428,7 +429,7 @@ export async function extractCnicFromImages(
     );
   }
 
-  const client = new GoogleGenAI({ apiKey });
+  const client = geminiClient("cnic-extract", apiKey);
 
   let rawText: string | undefined;
 

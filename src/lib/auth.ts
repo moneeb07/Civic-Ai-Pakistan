@@ -22,6 +22,25 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
 
+  /*
+   * Origins allowed to make state-changing requests (Better Auth's CSRF check).
+   *
+   * The mobile app has no Origin of its own, so it presents the API's own
+   * origin — see mobile/src/api/client.ts. On a physical phone that is the
+   * machine's LAN address, not localhost, so a dev server reachable at both
+   * has to trust both or sign-in fails CSRF from the phone only.
+   *
+   * Driven by an env var so no address is hard-coded: set
+   * ADDITIONAL_TRUSTED_ORIGINS to a comma-separated list.
+   */
+  trustedOrigins: [
+    process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    ...(process.env.ADDITIONAL_TRUSTED_ORIGINS ?? "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  ],
+
   emailAndPassword: {
     enabled: true,
     // Password hashing is handled by Better Auth (scrypt) — CivicAI never

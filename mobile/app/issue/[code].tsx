@@ -1,6 +1,7 @@
 import * as React from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 
 import { api } from "@/api/client";
 import { useQuery } from "@/api/hooks";
@@ -90,16 +91,31 @@ export default function IssueScreen() {
 
         <Text style={styles.heading}>Reports in this issue ({reports.length})</Text>
         <View style={styles.group}>
+          {/*
+            Each report opens the complaint screen, which is where the actual
+            work happens — advancing the department's workflow, or reopening a
+            resolved case. What that screen offers is decided by the server
+            from this officer's role, so tapping through never promises an
+            action they cannot take.
+          */}
           {reports.map((report) => (
-            <View key={report.linkId} style={styles.reportRow}>
-              <Text style={styles.reportTitle}>{report.title ?? "Untitled report"}</Text>
+            <Pressable
+              key={report.linkId}
+              accessibilityRole="button"
+              onPress={() => router.push(`/complaint/${report.reportId}`)}
+              style={({ pressed }) => [styles.reportRow, pressed && { opacity: 0.7 }]}
+            >
+              <View style={styles.reportHead}>
+                <Text style={styles.reportTitle}>{report.title ?? "Untitled report"}</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+              </View>
               {report.matchStatus === "needs_review" ? (
                 <Pill tone="warn" text="Unconfirmed match" />
               ) : null}
               {report.locationLabel ? (
                 <Text style={styles.meta}>{report.locationLabel}</Text>
               ) : null}
-            </View>
+            </Pressable>
           ))}
         </View>
 
@@ -278,7 +294,8 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   reportRow: { padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.line },
-  reportTitle: { fontSize: 15, fontWeight: "600", color: colors.ink },
+  reportHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  reportTitle: { flex: 1, fontSize: 15, fontWeight: "600", color: colors.ink },
   threadRow: { padding: spacing.lg, borderBottomWidth: 1, borderBottomColor: colors.line },
   threadTitle: { fontSize: 15, fontWeight: "600", color: colors.ink },
   bubble: { borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm, maxWidth: "90%" },

@@ -53,9 +53,18 @@ function Thread({ thread, onSent }: { thread: ClarificationThread; onSent: () =>
   const [busy, setBusy] = React.useState(false);
 
   const load = React.useCallback(async () => {
-    setMessages(
-      await api<ClarificationMessage[]>(`/api/citizen/clarifications/${thread.id}/messages`),
+    /*
+     * The route hands back { issueCode, status, messages }, not a bare array —
+     * see src/app/api/citizen/clarifications/[threadId]/messages/route.ts.
+     * Typing this call as ClarificationMessage[] and setting state straight
+     * from it skipped that unwrap: `messages` state became the whole wrapper
+     * object, which has no .map, and crashed the first time this citizen ever
+     * had a thread with a message in it.
+     */
+    const result = await api<{ messages: ClarificationMessage[] }>(
+      `/api/citizen/clarifications/${thread.id}/messages`,
     );
+    setMessages(result.messages);
   }, [thread.id]);
 
   React.useEffect(() => {

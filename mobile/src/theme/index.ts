@@ -4,19 +4,31 @@
  * app is small enough that a dependency would cost more than it saves.
  */
 export const colors = {
-  canvas: "#F6F7F9",
+  canvas: "#f7faf8",
   surface: "#FFFFFF",
-  ink: "#14181F",
-  muted: "#6B7280",
-  line: "#E5E7EB",
-  lineStrong: "#D1D5DB",
-  civic600: "#1F6FEB",
-  civic700: "#1A5FCC",
-  civic100: "#DCE9FF",
-  civic50: "#F0F6FF",
+  ink: "#10231d",
+  muted: "#6b7a74",
+  line: "#e4ede8",
+  lineStrong: "#d3e0d9",
+  /*
+   * Pakistan green, taken from the web app's own --color-civic-* tokens in
+   * src/app/globals.css. The two products are one product, so a citizen who
+   * reports on the phone and checks on the laptop should not feel handed off
+   * between two different brands.
+   */
+  // The brighter tint, for signals that must read against a dark scrim —
+  // the CNIC camera overlay turning green when the card is aligned.
+  civic500: "#0b8f6a",
+  civic600: "#006a4e",
+  civic700: "#005a42",
+  civic900: "#003b2f",
+  civic200: "#bfe9d9",
+  civic100: "#ddf5ec",
+  civic50: "#f1faf6",
   amber100: "#FEF3C7",
   amber700: "#B45309",
-  danger: "#DC2626",
+  danger: "#b4231f",
+  dangerBg: "#fdf2f1",
   white: "#FFFFFF",
 } as const;
 

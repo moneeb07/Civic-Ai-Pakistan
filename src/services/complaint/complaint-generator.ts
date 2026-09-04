@@ -1,6 +1,6 @@
 import "server-only";
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 
 import {
   CIVIC_CATEGORIES,
@@ -9,6 +9,7 @@ import {
   type CivicCategory,
   type GeneratedComplaint,
 } from "@/lib/report/schema";
+import { geminiClient } from "@/services/gemini/client";
 import { GEMINI_MODEL } from "@/services/gemini/model";
 
 /*
@@ -100,7 +101,7 @@ class GeminiComplaintGenerationProvider implements ComplaintGenerationProvider {
       throw new ComplaintGenerationError("malformed_response", "Unknown category.");
     }
 
-    const client = new GoogleGenAI({ apiKey });
+    const client = geminiClient("complaint-generate", apiKey);
 
     let rawText: string | undefined;
     try {

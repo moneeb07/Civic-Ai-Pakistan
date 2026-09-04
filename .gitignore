@@ -46,4 +46,7 @@ next-env.d.ts
 .env*.local
 .data/
 
+# Gemini transcripts — contain citizens' CNIC details in clear text.
+logs/
+
 admin_prompt.md

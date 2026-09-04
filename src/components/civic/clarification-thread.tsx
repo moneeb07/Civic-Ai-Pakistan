@@ -44,7 +44,14 @@ export function ClarificationThread({ thread }: { thread: ThreadDto }) {
       try {
         const response = await fetch(`/api/citizen/clarifications/${thread.id}/messages`);
         const payload = await response.json();
-        if (!cancelled && payload.success) setMessages(payload.data);
+        /*
+         * The route returns { issueCode, status, messages } — not a bare
+         * array. Assigning `payload.data` straight into message state made
+         * `messages` the wrapper object, which has no .map, and crashed the
+         * first time this citizen actually had a thread with a message in it.
+         * See src/app/api/citizen/clarifications/[threadId]/messages/route.ts.
+         */
+        if (!cancelled && payload.success) setMessages(payload.data.messages ?? []);
       } catch {
         // Leave what is on screen; a retry happens on the next send.
       } finally {

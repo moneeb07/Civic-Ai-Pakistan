@@ -19,6 +19,8 @@
  * Pure and framework-free so the ranking policy is unit-testable.
  */
 
+import { rankRows } from "./ranking";
+
 export interface AuthorityPerformanceInput {
   authorityId: string;
   authorityName: string;
@@ -56,7 +58,7 @@ export interface AuthorityPerformance extends AuthorityPerformanceInput {
  * is deliberately low — enough to stop a 2-of-2 authority topping the table,
  * not so high that it flattens genuine differences.
  */
-export const SMOOTHING_ISSUES = 10;
+export { SMOOTHING_ISSUES } from "./ranking";
 
 /**
  * Below this many issues an authority is shown but not ranked.
@@ -69,6 +71,7 @@ export const SMOOTHING_ISSUES = 10;
  */
 export const MIN_ISSUES_TO_RANK = 10;
 
+/** Plain percentage, guarding the empty case. Used by summarise() below. */
 function rate(resolved: number, total: number): number {
   return total === 0 ? 0 : (resolved / total) * 100;
 }
@@ -76,63 +79,27 @@ function rate(resolved: number, total: number): number {
 /**
  * Ranks authorities, most effective first.
  *
- * Authorities with no issues at all are included but always ranked last: they
- * have no record to judge, and giving them the national average would let an
- * authority that has done nothing outrank one that has done a great deal.
+ * A thin adapter over rankRows() in ./ranking.ts, which is shared with the
+ * role-scoped peer tables inside the government portal. The maths lives there
+ * so a department cannot be 3rd on one screen and 5th on another; this
+ * function only supplies the evidence threshold appropriate to whole
+ * authorities and keeps the historical field names.
  */
 export function rankAuthorities(
   inputs: AuthorityPerformanceInput[],
 ): AuthorityPerformance[] {
-  const totalResolved = inputs.reduce((sum, row) => sum + row.resolved, 0);
-  const totalIssues = inputs.reduce(
-    (sum, row) => sum + row.reported + row.inProcess + row.resolved,
-    0,
-  );
-
-  // The national average every authority is measured against.
-  const nationalRate = totalIssues === 0 ? 0 : totalResolved / totalIssues;
-
-  const scored = inputs.map((row) => {
-    const total = row.reported + row.inProcess + row.resolved;
-
-    /*
-     * resolved + (prior × m) over total + m. With m = SMOOTHING_ISSUES, a
-     * 2-of-2 authority scores near the national average rather than 100%,
-     * while a 800-of-1000 authority is barely moved at all.
-     */
-    const smoothed =
-      total === 0
-        ? 0
-        : ((row.resolved + nationalRate * SMOOTHING_ISSUES) /
-            (total + SMOOTHING_ISSUES)) *
-          100;
-
-    return {
-      ...row,
-      totalIssues: total,
-      openIssues: row.reported + row.inProcess,
-      resolutionRate: Number(rate(row.resolved, total).toFixed(1)),
-      rankingScore: Number(smoothed.toFixed(1)),
-      ranked: total >= MIN_ISSUES_TO_RANK,
-      rank: 0,
-    };
-  });
-
-  scored.sort((a, b) => {
-    // Unrankable authorities always sit below ranked ones, whatever they score.
-    if (a.ranked !== b.ranked) return a.ranked ? -1 : 1;
-
-    if (b.rankingScore !== a.rankingScore) return b.rankingScore - a.rankingScore;
-    // Tie broken by who carried more work, then by name for determinism.
-    if (b.totalIssues !== a.totalIssues) return b.totalIssues - a.totalIssues;
-    return a.authorityName.localeCompare(b.authorityName);
-  });
-
-  let position = 0;
-  return scored.map((row) => {
-    if (!row.ranked) return { ...row, rank: 0 };
-    position += 1;
-    return { ...row, rank: position };
+  /*
+   * `name` is only the shared ranker's tie-break key. It is deleted on the way
+   * out rather than left on the DTO, so nothing downstream starts depending on
+   * a duplicate of authorityName that only exists as an implementation detail.
+   */
+  return rankRows(
+    inputs.map((row) => ({ ...row, name: row.authorityName })),
+    MIN_ISSUES_TO_RANK,
+  ).map((row) => {
+    const scored: Record<string, unknown> = { ...row };
+    delete scored.name;
+    return scored as unknown as AuthorityPerformance;
   });
 }
 

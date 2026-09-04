@@ -1,12 +1,13 @@
 import "server-only";
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 
 import {
   CIVIC_CATEGORIES,
   visionResultSchema,
   type VisionResult,
 } from "@/lib/report/schema";
+import { geminiClient } from "@/services/gemini/client";
 import { GEMINI_MODEL } from "@/services/gemini/model";
 
 /*
@@ -74,7 +75,7 @@ class GeminiVisionProvider implements VisionProvider {
       throw new VisionAnalysisError("not_configured", "GEMINI_API_KEY is not configured.");
     }
 
-    const client = new GoogleGenAI({ apiKey });
+    const client = geminiClient("report-vision", apiKey);
 
     let rawText: string | undefined;
     try {

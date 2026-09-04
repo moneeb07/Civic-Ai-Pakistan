@@ -1,11 +1,12 @@
 import "server-only";
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { Type } from "@google/genai";
 
 import {
   transcriptionResultSchema,
   type TranscriptionResult,
 } from "@/lib/report/schema";
+import { geminiClient } from "@/services/gemini/client";
 import { GEMINI_MODEL } from "@/services/gemini/model";
 
 /*
@@ -62,7 +63,7 @@ class GeminiSpeechToTextProvider implements SpeechToTextProvider {
       throw new TranscriptionError("not_configured", "GEMINI_API_KEY is not configured.");
     }
 
-    const client = new GoogleGenAI({ apiKey });
+    const client = geminiClient("speech-transcribe", apiKey);
 
     let rawText: string | undefined;
     try {
