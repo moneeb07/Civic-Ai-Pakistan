@@ -7,7 +7,7 @@ import { CircleAlert, MapPinned, Pencil, ScanLine, ShieldCheck, Sparkles } from 
 import { ReportStepHeading } from "@/components/report/report-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import {
   ReportApiError,
   confirmReport,
@@ -21,7 +21,6 @@ import {
   type Severity,
 } from "@/lib/report/schema";
 
-const t = getDictionary();
 
 type Phase = "generating" | "generation-failed" | "review" | "confirmed";
 
@@ -33,6 +32,7 @@ type Phase = "generating" | "generation-failed" | "review" | "confirmed";
  * contact any government system, on purpose, for this stage.
  */
 export function ReviewFlow({ initialReport }: { initialReport: ReportDto }) {
+  const t = useT();
   const router = useRouter();
   const [report, setReport] = React.useState(initialReport);
   const [phase, setPhase] = React.useState<Phase>(
@@ -53,7 +53,7 @@ export function ReviewFlow({ initialReport }: { initialReport: ReportDto }) {
       setError(cause instanceof ReportApiError ? cause.message : t.report.unexpectedError);
       setPhase("generation-failed");
     }
-  }, [report.id]);
+  }, [report.id, t.report.unexpectedError]);
 
   /*
    * Auto-starts generation for a freshly-created report (no title yet) once
@@ -351,6 +351,7 @@ export function ReviewFlow({ initialReport }: { initialReport: ReportDto }) {
 }
 
 function AiBadge() {
+  const t = useT();
   return (
     <span className="inline-flex items-center gap-1 rounded-full bg-civic-100 px-2 py-0.5 text-[0.6875rem] font-semibold text-civic-700">
       <ScanLine className="size-3" aria-hidden="true" />
@@ -384,6 +385,7 @@ function EditableSection({
   submitting: boolean;
   multiline: boolean;
 }) {
+  const t = useT();
   return (
     <section className="rounded-[18px] border border-line bg-surface p-4">
       <div className="flex items-center justify-between">

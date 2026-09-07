@@ -11,14 +11,13 @@ import { FormAlert } from "@/components/auth/form-alert";
 import { FormField } from "@/components/auth/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import {
   buildAddressPrefill,
   type AddressFormState,
 } from "@/lib/registration/address-prefill";
 import type { CnicAddressData } from "@/lib/registration/schema";
 
-const t = getDictionary();
 
 /*
  * Both addresses, pre-filled from the card.
@@ -44,6 +43,7 @@ export function AddressForm({
   cnicPresentAddress?: CnicAddressData | null;
   cnicPermanentAddress?: CnicAddressData | null;
 }) {
+  const t = useT();
   const router = useRouter();
   const { reportStruggle } = useAssistedMode();
 
@@ -348,6 +348,7 @@ function CnicAddressPrompt({
   activeSource: "present" | "permanent" | null;
   onChoose: (which: "present" | "permanent") => void;
 }) {
+  const t = useT();
   return (
     <div className="mb-5 rounded-[18px] border border-civic-200 bg-civic-50 p-4">
       <div className="flex items-center gap-2">

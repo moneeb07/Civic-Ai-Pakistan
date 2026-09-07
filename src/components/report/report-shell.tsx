@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
+import { LanguageToggle } from "@/components/i18n/language-toggle";
 
 const STEPS = [
   { key: "camera", label: "Photo" },
@@ -65,7 +66,7 @@ export function ReportShell({
               <CivicAILogo showCountry={false} className="justify-center" />
             </Link>
 
-            <span className="size-10" aria-hidden="true" />
+            <LanguageToggle />
           </div>
 
           {/*

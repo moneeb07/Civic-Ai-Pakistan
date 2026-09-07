@@ -13,12 +13,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { signUp } from "@/lib/auth-client";
 import { describeNetworkError, describeSignUpError } from "@/lib/auth-errors";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import { signUpSchema, type SignUpValues } from "@/lib/validation/auth";
 
-const t = getDictionary();
 
 export function SignUpForm() {
+  const t = useT();
   const router = useRouter();
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -49,7 +49,7 @@ export function SignUpForm() {
       });
 
       if (error) {
-        setFormError(describeSignUpError(error));
+        setFormError(describeSignUpError(t, error));
         return;
       }
 
@@ -57,7 +57,7 @@ export function SignUpForm() {
       router.push("/home");
       router.refresh();
     } catch {
-      setFormError(describeNetworkError());
+      setFormError(describeNetworkError(t));
     }
   }
 

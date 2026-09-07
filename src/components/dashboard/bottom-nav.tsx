@@ -4,10 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FileText, Home, Map, PlusCircle, UserRound } from "lucide-react";
 
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
+import type { Dictionary } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
-const t = getDictionary();
 
 /*
  * Bottom tab bar, from the reference.
@@ -16,16 +16,26 @@ const t = getDictionary();
  * marked unavailable rather than dead-ending on a broken screen — hiding it
  * would misrepresent what CivicAI is for, and faking it would be worse.
  */
-const TABS = [
-  { href: "/dashboard", label: t.dashboard.navHome, icon: Home, ready: true },
-  { href: "/report", label: t.dashboard.navReport, icon: PlusCircle, ready: true },
-  { href: "/dashboard/reports", label: t.dashboard.navMyReports, icon: FileText, ready: true },
-  { href: "/dashboard/map", label: t.dashboard.navMap, icon: Map, ready: false },
-  { href: "/dashboard/profile", label: t.dashboard.navProfile, icon: UserRound, ready: true },
-];
+/*
+ * Built per render rather than held as a module constant: the labels are
+ * translated, and a constant evaluated at import time is fixed to whatever
+ * language the process started in — which for a server rendering two citizens
+ * in two languages is simply wrong for one of them.
+ */
+function tabsFor(t: Dictionary) {
+  return [
+    { href: "/dashboard", label: t.dashboard.navHome, icon: Home, ready: true },
+    { href: "/report", label: t.dashboard.navReport, icon: PlusCircle, ready: true },
+    { href: "/dashboard/reports", label: t.dashboard.navMyReports, icon: FileText, ready: true },
+    { href: "/dashboard/map", label: t.dashboard.navMap, icon: Map, ready: false },
+    { href: "/dashboard/profile", label: t.dashboard.navProfile, icon: UserRound, ready: true },
+  ];
+}
 
 export function BottomNav() {
+  const t = useT();
   const pathname = usePathname();
+  const TABS = tabsFor(t);
 
   return (
     <nav

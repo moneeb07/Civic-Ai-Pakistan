@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MessagesSquare, PlusCircle } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
+import { LanguageToggle } from "@/components/i18n/language-toggle";
 import { CitizenNav } from "@/components/dashboard/citizen-nav";
 import { Avatar } from "@/components/ui/avatar";
 
@@ -71,6 +72,10 @@ export function CitizenShell({
           </div>
 
           <div className="ms-auto flex items-center gap-2">
+            {/* Hidden on the narrowest screens, where the row is already the
+                brand plus two icon buttons; the same control sits in Profile
+                for those, so nobody loses access to it. */}
+            <LanguageToggle className="hidden sm:inline-flex" />
             <Link
               href="/dashboard/messages"
               className="relative inline-flex size-10 items-center justify-center rounded-full text-muted transition-colors hover:bg-canvas hover:text-ink"

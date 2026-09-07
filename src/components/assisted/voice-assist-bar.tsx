@@ -4,12 +4,11 @@ import * as React from "react";
 import { Ear, Volume2, VolumeX, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import { cn } from "@/lib/utils";
 import { useAssistedMode } from "./assisted-mode-provider";
 import { useSpokenGuidance } from "./use-spoken-guidance";
 
-const t = getDictionary();
 
 /*
  * The Assisted Mode surface shown on every registration step.
@@ -29,6 +28,7 @@ export function VoiceAssistBar({
   phrase: string;
   className?: string;
 }) {
+  const t = useT();
   const { enabled, setEnabled, shouldOffer, dismissOffer } = useAssistedMode();
 
   /*

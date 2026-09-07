@@ -4,16 +4,25 @@ import { CheckCircle2, ScanLine, UserRound } from "lucide-react";
 
 import { SignOutButton } from "@/app/home/sign-out-button";
 import { Card, CardBody, CardEyebrow } from "@/components/ui/card";
-import { getDictionary } from "@/lib/i18n";
+import { getRequestDictionary } from "@/lib/i18n/server";
+import { en } from "@/lib/i18n/dictionaries/en";
+import type { Dictionary } from "@/lib/i18n";
 import { getCitizenProfile } from "@/lib/profile";
 import { requireSession } from "@/lib/session";
 
-const t = getDictionary();
 
-export const metadata: Metadata = { title: t.profile.title };
+/*
+ * Page metadata reads the ENGLISH dictionary directly, and deliberately.
+ * `metadata` is evaluated once per module, outside any request, so it cannot
+ * see the citizen's cookie — and a browser tab title is closer to a bookmark
+ * label than to instructional copy. Guessing at a language here would produce
+ * one that is wrong for somebody; English is at least predictable.
+ */
+export const metadata: Metadata = { title: en.profile.title };
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
+  const t = await getRequestDictionary();
   const session = await requireSession();
   const profile = await getCitizenProfile(session.user.id);
 
@@ -89,7 +98,7 @@ export default async function ProfilePage() {
             </span>
           </div>
 
-          <Rows
+          <Rows t={t}
             rows={[
               { label: t.profile.fullName, value: profile.fullName },
               { label: t.profile.fatherName, value: profile.fatherName },
@@ -106,7 +115,7 @@ export default async function ProfilePage() {
       <Card className="mt-4">
         <CardBody>
           <CardEyebrow>{t.profile.contactSection}</CardEyebrow>
-          <Rows
+          <Rows t={t}
             rows={[
               { label: t.profile.phone, value: profile.phone, mono: true },
               { label: t.profile.email, value: session.user.email, mono: true },
@@ -119,7 +128,7 @@ export default async function ProfilePage() {
       <Card className="mt-4">
         <CardBody>
           <CardEyebrow>{t.profile.addressSection}</CardEyebrow>
-          <Rows
+          <Rows t={t}
             rows={[
               { label: t.profile.houseNumber, value: profile.houseNumber },
               { label: t.profile.city, value: profile.city },
@@ -145,7 +154,7 @@ export default async function ProfilePage() {
       <Card className="mt-4">
         <CardBody>
           <CardEyebrow>{t.profile.accountSection}</CardEyebrow>
-          <Rows
+          <Rows t={t}
             rows={[
               {
                 label: t.profile.memberSince,
@@ -181,8 +190,10 @@ export default async function ProfilePage() {
 }
 
 function Rows({
+  t,
   rows,
 }: {
+  t: Dictionary;
   rows: { label: string; value: string | null | undefined; mono?: boolean }[];
 }) {
   return (

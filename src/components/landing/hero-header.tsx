@@ -2,9 +2,10 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ChevronDown, Globe, Lock, Menu, X } from "lucide-react";
+import { Lock, Menu, X } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
+import { LanguageToggle } from "@/components/i18n/language-toggle";
 import { Button } from "@/components/ui/button";
 
 /*
@@ -41,14 +42,14 @@ export function HeroHeader() {
         </Link>
 
         <div className="ms-auto flex items-center gap-1.5 sm:gap-2">
-          <button
-            type="button"
-            className="hidden items-center gap-1.5 rounded-full border border-line-strong bg-surface/90 px-3 py-2 text-[0.8125rem] font-medium text-ink shadow-sm backdrop-blur transition-colors hover:bg-surface md:inline-flex"
-          >
-            <Globe className="size-3.5 text-muted" aria-hidden="true" />
-            English
-            <ChevronDown className="size-3.5 text-muted" aria-hidden="true" />
-          </button>
+          {/*
+            This was a button that said "English" and did nothing at all — a
+            placeholder from before a second dictionary existed. It is the real
+            switch now, and it shows both languages at once rather than
+            opening a menu: a dropdown has to be understood before it can be
+            opened, which is no use to the citizen it is offering something to.
+          */}
+          <LanguageToggle className="hidden bg-surface/90 shadow-sm backdrop-blur md:inline-flex" />
 
           {/* Authority Sign In and Get Started: sm and up only, in the row. */}
           <Button
@@ -93,14 +94,9 @@ export function HeroHeader() {
           className="border-b border-line bg-surface shadow-lg sm:hidden"
         >
           <div className="flex flex-col gap-2 px-5 py-4">
-            <button
-              type="button"
-              className="flex min-h-11 items-center gap-2 rounded-[var(--radius-field)] px-3 text-[0.9375rem] font-medium text-ink transition-colors hover:bg-canvas"
-            >
-              <Globe className="size-4 text-muted" aria-hidden="true" />
-              English
-              <ChevronDown className="ms-auto size-4 text-muted" aria-hidden="true" />
-            </button>
+            <div className="px-3 py-1">
+              <LanguageToggle />
+            </div>
 
             <Link
               href="/gov/login"

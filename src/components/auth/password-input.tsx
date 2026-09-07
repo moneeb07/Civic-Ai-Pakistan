@@ -4,10 +4,9 @@ import * as React from "react";
 import { Eye, EyeOff } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import { cn } from "@/lib/utils";
 
-const t = getDictionary();
 
 interface PasswordInputProps
   extends React.InputHTMLAttributes<HTMLInputElement> {
@@ -18,6 +17,7 @@ export const PasswordInput = React.forwardRef<
   HTMLInputElement,
   PasswordInputProps
 >(function PasswordInput({ className, invalid, ...props }, ref) {
+  const t = useT();
   const [visible, setVisible] = React.useState(false);
 
   return (

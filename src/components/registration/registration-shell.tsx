@@ -1,13 +1,21 @@
+"use client";
+
+/*
+ * A client component purely so it can read the citizen's language.
+ * It fetches nothing and holds no state — but it IS imported by client
+ * components, so it cannot be an async server component, and the
+ * dictionary has to come from the context rather than from cookies().
+ */
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
 import { StepProgress } from "@/components/registration/step-progress";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
+import { LanguageToggle } from "@/components/i18n/language-toggle";
 import type { RegistrationStep } from "@/lib/registration/schema";
 
-const t = getDictionary();
 
 /*
  * The frame every registration step sits in.
@@ -33,6 +41,7 @@ export function RegistrationShell({
   wide?: boolean;
   children: ReactNode;
 }) {
+  const t = useT();
   const column = wide ? "max-w-6xl" : "max-w-xl";
   return (
     <div className="flex min-h-full flex-col bg-canvas">
@@ -65,7 +74,10 @@ export function RegistrationShell({
               <CivicAILogo showCountry={false} className="justify-center" />
             </Link>
 
-            <span className="size-10" aria-hidden="true" />
+            {/* Replaces a dead spacer. The language switch has to be reachable
+                mid-flow: a citizen finds out they need it at the first screen
+                of instructions, not before. */}
+            <LanguageToggle />
           </div>
 
           <div className="mt-3">

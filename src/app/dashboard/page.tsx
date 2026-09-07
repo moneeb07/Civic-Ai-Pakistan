@@ -29,18 +29,18 @@ import { formatDate } from "@/lib/civic/format-date";
 import { cn } from "@/lib/utils";
 import { getCitizenSummary, listCitizenReports } from "@/lib/civic/tracking";
 import { listThreadsForCitizen } from "@/lib/gov/clarification";
-import { getDictionary } from "@/lib/i18n";
+import { getRequestDictionary } from "@/lib/i18n/server";
+import type { Dictionary } from "@/lib/i18n";
 import { getCitizenProfile } from "@/lib/profile";
 import { requireSession } from "@/lib/session";
 import { resolveLanding } from "@/lib/civic/landing";
 
-const t = getDictionary();
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Dashboard · CivicAI" };
 
-function greeting(): string {
+function greeting(t: Dictionary): string {
   // Pinned to Pakistan Standard Time so the server and the browser agree —
   // an unpinned hour produced "Good evening" beside a morning timestamp.
   const hour = Number(
@@ -94,6 +94,7 @@ const CATEGORY_TONE_BG: Record<string, string> = {
  * and reporting is a persistent action in the sidebar and the header.
  */
 export default async function DashboardPage() {
+  const t = await getRequestDictionary();
   const session = await requireSession();
 
   /*
@@ -126,7 +127,7 @@ export default async function DashboardPage() {
     >
       <div className="mx-auto w-full max-w-5xl">
         <DashboardHero
-          greeting={`${greeting()}, ${firstName} \u{1F44B}`}
+          greeting={`${greeting(t)}, ${firstName} \u{1F44B}`}
           subtitle={t.dashboard.prompt}
         />
 

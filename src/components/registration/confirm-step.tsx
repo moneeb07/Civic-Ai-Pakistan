@@ -11,9 +11,8 @@ import { usePasswordVault } from "@/components/registration/password-vault";
 import { StepHeading } from "@/components/registration/registration-shell";
 import { FormAlert } from "@/components/auth/form-alert";
 import { Button } from "@/components/ui/button";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 
-const t = getDictionary();
 
 export interface ConfirmSummary {
   fullName: string;
@@ -42,6 +41,7 @@ export interface ConfirmSummary {
  * someone's shoulder. Each section links back to the step that owns it.
  */
 export function ConfirmStep({ summary }: { summary: ConfirmSummary }) {
+  const t = useT();
   const router = useRouter();
   const vault = usePasswordVault();
   const { enabled: assisted } = useAssistedMode();
@@ -237,6 +237,7 @@ function SummarySection({
   footer?: string;
   warning?: string;
 }) {
+  const t = useT();
   const visible = rows.filter((row) => row.value);
 
   return (

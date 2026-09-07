@@ -4,10 +4,9 @@ import * as React from "react";
 import { ImageUp, Loader2, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import { prepareCnicUpload } from "@/lib/image";
 
-const t = getDictionary();
 
 /** Which face of the card an instance is asking for. */
 export type CnicSide = "front" | "back";
@@ -69,12 +68,20 @@ interface CnicCaptureProps {
 export function CnicCapture({
   onCaptured,
   disabled,
-  frameLabel = t.identity.frameLabel,
+  frameLabel,
   frameLabelEn,
   previewAlt = "The CNIC photo you just took",
   title,
   side,
 }: CnicCaptureProps) {
+  const t = useT();
+
+  /*
+   * Defaulted in the body, not in the parameter list. A default expression is
+   * evaluated where the parameter is declared — outside the component — and a
+   * hook cannot be read from there.
+   */
+  const dropLabel = frameLabel ?? t.identity.frameLabel;
   /*
    * Which face of the card this instance is asking for, said in the button.
    * "Upload CNIC" is ambiguous at the exact moment it matters — the citizen is
@@ -238,7 +245,7 @@ export function CnicCapture({
           lang="ur"
           className="text-[1.0625rem] font-semibold leading-relaxed text-ink"
         >
-          {frameLabel}
+          {dropLabel}
         </span>
         <span className="text-[0.8125rem] text-muted">{dropLabelEn}</span>
       </button>
@@ -269,6 +276,7 @@ export function CnicCapture({
 
 /** The photography guidance shown beside the capture control. */
 export function CaptureGuidance() {
+  const t = useT();
   const items = [
     t.identity.guidance.flat,
     t.identity.guidance.light,

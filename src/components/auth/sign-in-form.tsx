@@ -14,12 +14,12 @@ import { Input } from "@/components/ui/input";
 import { signIn } from "@/lib/auth-client";
 import { safeNextPath } from "@/lib/civic/next-path";
 import { describeNetworkError, describeSignInError } from "@/lib/auth-errors";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import { signInSchema, type SignInValues } from "@/lib/validation/auth";
 
-const t = getDictionary();
 
 export function SignInForm() {
+  const t = useT();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [formError, setFormError] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export function SignInForm() {
       });
 
       if (error) {
-        setFormError(describeSignInError(error));
+        setFormError(describeSignInError(t, error));
         return;
       }
 
@@ -60,7 +60,7 @@ export function SignInForm() {
       router.push(safeNextPath(searchParams.get("next")) ?? "/dashboard");
       router.refresh();
     } catch {
-      setFormError(describeNetworkError());
+      setFormError(describeNetworkError(t));
     }
   }
 

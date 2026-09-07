@@ -5,10 +5,9 @@ import { CheckCircle2 } from "lucide-react";
 import { SuccessAnnouncement } from "@/components/registration/success-announcement";
 import { CivicAILogo } from "@/components/brand/civicai-logo";
 import { Button } from "@/components/ui/button";
-import { getDictionary } from "@/lib/i18n";
+import { getRequestDictionary } from "@/lib/i18n/server";
 import { getSession } from "@/lib/session";
 
-const t = getDictionary();
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +17,7 @@ export const dynamic = "force-dynamic";
  * so there is nothing to celebrate and the citizen goes back to the flow.
  */
 export default async function CompletePage() {
+  const t = await getRequestDictionary();
   const session = await getSession();
   if (!session) redirect("/register");
 

@@ -4,10 +4,9 @@ import * as React from "react";
 import { CircleAlert, Mic, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import { cn } from "@/lib/utils";
 
-const t = getDictionary();
 
 type RecorderState = "idle" | "listening" | "processing" | "denied" | "unavailable";
 
@@ -33,6 +32,7 @@ export function VoiceRecorder({
   onRecorded: (blob: Blob, mimeType: string) => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
   const chunksRef = React.useRef<Blob[]>([]);
   const streamRef = React.useRef<MediaStream | null>(null);

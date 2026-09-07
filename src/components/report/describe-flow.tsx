@@ -7,14 +7,13 @@ import { CircleAlert, Keyboard, RotateCcw } from "lucide-react";
 import { ReportStepHeading } from "@/components/report/report-shell";
 import { VoiceRecorder } from "@/components/report/voice-recorder";
 import { Button } from "@/components/ui/button";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import {
   ReportApiError,
   submitTextDescription,
   submitVoiceDescription,
 } from "@/lib/report/client";
 
-const t = getDictionary();
 
 type Mode = "choose" | "voice" | "type" | "review";
 
@@ -25,6 +24,7 @@ type Mode = "choose" | "voice" | "type" | "review";
  * needed, edited it.
  */
 export function DescribeFlow({ reportId }: { reportId: string }) {
+  const t = useT();
   const router = useRouter();
   const [mode, setMode] = React.useState<Mode>("choose");
   const [recorderKey, setRecorderKey] = React.useState(0);

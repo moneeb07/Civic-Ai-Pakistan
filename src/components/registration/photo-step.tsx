@@ -8,10 +8,9 @@ import { VoiceAssistBar } from "@/components/assisted/voice-assist-bar";
 import { StepHeading } from "@/components/registration/registration-shell";
 import { FormAlert } from "@/components/auth/form-alert";
 import { Button } from "@/components/ui/button";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import { prepareProfileImage } from "@/lib/image";
 
-const t = getDictionary();
 
 /*
  * Profile photo — optional, and only a profile photo.
@@ -21,6 +20,7 @@ const t = getDictionary();
  * photograph deserves to know what happens to it.
  */
 export function PhotoStep() {
+  const t = useT();
   const router = useRouter();
 
   const videoRef = React.useRef<HTMLVideoElement>(null);

@@ -11,9 +11,8 @@ import { FormAlert } from "@/components/auth/form-alert";
 import { FormField } from "@/components/auth/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 
-const t = getDictionary();
 
 export function ContactForm({
   initialPhone = "",
@@ -22,6 +21,7 @@ export function ContactForm({
   initialPhone?: string;
   initialEmail?: string;
 }) {
+  const t = useT();
   const router = useRouter();
   const { reportStruggle } = useAssistedMode();
 

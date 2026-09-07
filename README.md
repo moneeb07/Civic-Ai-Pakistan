@@ -41,6 +41,44 @@ different things from the same system, and both have to work.
 
 ---
 
+## Testing it in five minutes
+
+Two flows, one after the other. The second only makes sense after the first.
+
+### A. Report a problem, as a citizen
+
+1. Sign in at **`/auth/sign-in`** with `citizen@example.com` / `CivicAI@2026`
+   *(or sign up fresh at `/register` to see CNIC scanning too)*
+2. Press **Report a Problem** on the dashboard
+3. **Photograph anything** — a pothole, a bin, a broken light. A photo on your
+   screen works; the model doesn't know the difference
+4. Wait for the AI to say what it sees. **Turn your volume up** — it reads the
+   finding aloud in Urdu and asks whether it's right
+5. Press **Continue** if it's right. If it's wrong, press the **mic** and say
+   what the problem actually is, in Urdu or English
+6. Add a location, review the complaint the AI wrote, and **Confirm**
+
+### B. Watch it arrive, as an officer
+
+7. Open **`/gov/login`** in a different browser or a private window
+8. Sign in as `depthead@cda.gov.pk` / `CivicAI@2026`
+9. The report is in the queue — **routed to a department**, grouped with any
+   similar reports, waiting for a human decision
+10. Assign it to `member@cda.gov.pk`, move it through the workflow stages, and
+    watch the citizen's tracking page update
+
+### C. Switch the language
+
+11. Press **اردو** in the header. Registration, the dashboard and the whole
+    reporting flow switch to Urdu; the app name and the landing-page headline
+    stay in English by design
+
+> **What to look at while you do this:** every value the AI produces is
+> editable before it is submitted, and every one is labelled as AI-generated.
+> The product never presents a model's guess as a settled fact.
+
+---
+
 ## What a reviewer should look at
 
 If you have ten minutes, this is the path that shows the whole idea:
@@ -74,6 +112,11 @@ If you have ten minutes, this is the path that shows the whole idea:
 - **Three AI providers, one interface.** OpenAI, Gemini and OpenRouter are
   interchangeable through a single gate, chosen by one environment variable, so
   the whole product can be run and compared on any of them.
+- **English and Urdu, switchable from the header.** Every instruction, button,
+  label and message in the citizen flow is translated. The app name and the
+  landing-page headline stay English on purpose — brand identity is not
+  instructional copy, and translating it would make the product harder to
+  recognise, not easier to use.
 
 ---
 
@@ -82,6 +125,7 @@ If you have ten minutes, this is the path that shows the whole idea:
 ## Contents
 
 - [Why we built this](#why-we-built-this)
+- [Testing it in five minutes](#testing-it-in-five-minutes) — **start here**
 - [What a reviewer should look at](#what-a-reviewer-should-look-at)
 - [Quick start](#quick-start) — web running in 5 minutes
 - [Running the mobile app](#running-the-mobile-app)
@@ -409,20 +453,46 @@ are for.
 
 ## Test accounts
 
-After `npm run db:seed`, the password for **all** accounts is `CivicAI@2026`:
+**Password for every account below: `CivicAI@2026`**
 
-| Role | Email | Can do |
+### Citizen — sign in at `/auth/sign-in`
+
+| Email | Password | What's already there |
 |---|---|---|
-| Platform Admin | `admin@civicai.pk` | Create organizations, see all of them |
-| Organization Head | `orghead@cda.gov.pk` | Create departments, compare them |
-| Department Head | `depthead@cda.gov.pk` | Invite members, assign, set workflow |
-| Member | `member@cda.gov.pk` | Work assigned complaints |
-| Member | `bilal@cda.gov.pk` | Second member, for assignment testing |
+| `citizen@example.com` | `CivicAI@2026` | 5 reports, 3 grouped issues, 1 unanswered question from a department |
 
-Government staff sign in at **`/gov/login`** — there is deliberately no public
-sign-up for officers. Citizens sign up at `/register` with a CNIC.
+Use this to see the citizen side with real history. To walk the flow from
+nothing instead, sign up fresh at **`/register`** — you'll need a CNIC photo.
 
-> Development credentials for a seeded database. Never deploy a seeded database.
+### Government / officers — sign in at `/gov/login`
+
+| Role | Email | Password | What they can do |
+|---|---|---|---|
+| Platform admin | `admin@civicai.pk` | `CivicAI@2026` | Sees every organisation; creates new ones |
+| Organisation head | `orghead@cda.gov.pk` | `CivicAI@2026` | CDA — creates departments, routes issues, compares them |
+| Department head | `depthead@cda.gov.pk` | `CivicAI@2026` | Road & Infrastructure — invites members, assigns work, sets the workflow |
+| Member (worker) | `member@cda.gov.pk` | `CivicAI@2026` | Works assigned complaints — **2 mentions waiting** |
+| Member (worker) | `bilal@cda.gov.pk` | `CivicAI@2026` | Second worker, for testing reassignment — **1 mention waiting** |
+
+Seeded organisation: **Capital Development Authority**, with three departments
+— Road & Infrastructure, Water Management, Municipal Services — each with its
+own approval workflow and SLA hours.
+
+There is deliberately **no public sign-up for officers**. Government accounts
+exist only by invitation or by seed, which is why the list above is fixed.
+
+### Creating these accounts
+
+```bash
+npm run db:migrate   # create the tables
+npm run db:seed      # create every account above, plus reports and issues
+```
+
+`db:seed` clears previous seed data first, so it is safe to re-run whenever you
+want a clean demo.
+
+> These are development credentials for a seeded database. Never point a seeded
+> database at real citizens.
 
 ---
 

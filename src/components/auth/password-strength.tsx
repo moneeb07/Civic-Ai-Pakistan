@@ -1,15 +1,19 @@
 "use client";
 
 import { assessPasswordStrength } from "@/lib/validation/auth";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import { cn } from "@/lib/utils";
 
-const t = getDictionary();
 
+/*
+ * The bars and colours are fixed; only the LABEL changes with the language, so
+ * only the label is deferred. Keeping the rest at module scope means the
+ * styling table is still written once rather than rebuilt on every keystroke.
+ */
 const PRESENTATION = {
-  weak: { filled: 1, bar: "bg-danger", text: "text-danger", label: t.passwordStrength.weak },
-  fair: { filled: 2, bar: "bg-amber-500", text: "text-amber-700", label: t.passwordStrength.fair },
-  strong: { filled: 3, bar: "bg-civic-500", text: "text-civic-600", label: t.passwordStrength.strong },
+  weak: { filled: 1, bar: "bg-danger", text: "text-danger" },
+  fair: { filled: 2, bar: "bg-amber-500", text: "text-amber-700" },
+  strong: { filled: 3, bar: "bg-civic-500", text: "text-civic-600" },
 } as const;
 
 /*
@@ -17,11 +21,13 @@ const PRESENTATION = {
  * `passwordSchema` and is enforced on the server.
  */
 export function PasswordStrength({ password }: { password: string }) {
+  const t = useT();
   const strength = assessPasswordStrength(password);
 
   if (strength === "empty") return null;
 
-  const { filled, bar, text, label } = PRESENTATION[strength];
+  const { filled, bar, text } = PRESENTATION[strength];
+  const label = t.passwordStrength[strength];
 
   return (
     <div className="pt-0.5">

@@ -12,10 +12,9 @@ import { FormField } from "@/components/auth/form-field";
 import { PasswordInput } from "@/components/auth/password-input";
 import { PasswordStrength } from "@/components/auth/password-strength";
 import { Button } from "@/components/ui/button";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import { PASSWORD_MIN_LENGTH } from "@/lib/validation/auth";
 
-const t = getDictionary();
 
 /*
  * The password step.
@@ -26,6 +25,7 @@ const t = getDictionary();
  * contains no field values — it cannot read, hear or repeat a password.
  */
 export function SecurityForm() {
+  const t = useT();
   const router = useRouter();
   const vault = usePasswordVault();
   const { reportStruggle } = useAssistedMode();

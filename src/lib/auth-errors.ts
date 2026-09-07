@@ -1,6 +1,4 @@
-import { getDictionary } from "@/lib/i18n";
-
-const t = getDictionary();
+import type { Dictionary } from "@/lib/i18n";
 
 interface AuthErrorLike {
   code?: string;
@@ -11,17 +9,27 @@ interface AuthErrorLike {
 /*
  * Maps a Better Auth error onto CivicAI copy.
  *
+ * The dictionary is passed in rather than read at module scope. These strings
+ * are shown to a citizen who may be reading the app in Urdu, and a module
+ * constant is resolved once per process — it cannot know who is asking.
+ *
  * Sign-in deliberately collapses every credential failure into one message:
  * telling an attacker that an email exists but the password was wrong hands
  * them account enumeration for free.
  */
-export function describeSignInError(error: AuthErrorLike | null | undefined) {
+export function describeSignInError(
+  t: Dictionary,
+  error: AuthErrorLike | null | undefined,
+) {
   if (!error) return t.errors.unexpected;
   if (error.status === 429) return t.errors.tooManyRequests;
   return t.errors.signInFailed;
 }
 
-export function describeSignUpError(error: AuthErrorLike | null | undefined) {
+export function describeSignUpError(
+  t: Dictionary,
+  error: AuthErrorLike | null | undefined,
+) {
   if (!error) return t.errors.unexpected;
   if (error.status === 429) return t.errors.tooManyRequests;
 
@@ -35,6 +43,6 @@ export function describeSignUpError(error: AuthErrorLike | null | undefined) {
 }
 
 /** Thrown fetch failures (offline, DNS, server down) rather than API errors. */
-export function describeNetworkError() {
+export function describeNetworkError(t: Dictionary) {
   return t.errors.network;
 }

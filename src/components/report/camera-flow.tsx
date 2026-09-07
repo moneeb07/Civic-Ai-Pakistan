@@ -9,7 +9,7 @@ import { ReportCamera } from "@/components/report/report-camera";
 import { ReportStepHeading } from "@/components/report/report-shell";
 import { VoiceRecorder } from "@/components/report/voice-recorder";
 import { Button } from "@/components/ui/button";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import {
   ReportApiError,
   analyzeReportImage,
@@ -20,7 +20,6 @@ import {
 import type { CivicCategory, VisionResult } from "@/lib/report/schema";
 import { CIVIC_CATEGORIES } from "@/lib/report/schema";
 
-const t = getDictionary();
 
 type Phase = "capture" | "analyzing" | "confirm" | "choose-category" | "error";
 
@@ -154,6 +153,7 @@ function useNarration(reportId: string, speech: ReturnType<typeof useSpeech>): N
 }
 
 export function CameraFlow({ reportId }: { reportId: string }) {
+  const t = useT();
   const router = useRouter();
   const [phase, setPhase] = React.useState<Phase>("capture");
   const [vision, setVision] = React.useState<VisionResult | null>(null);
@@ -181,7 +181,7 @@ export function CameraFlow({ reportId }: { reportId: string }) {
       t.report.confirmSpokenYes,
       t.report.confirmSpokenNo,
     ].join(" ");
-  }, [summaryUr]);
+  }, [summaryUr, t.report.confirmSpokenQuestion, t.report.confirmSpokenYes, t.report.confirmSpokenNo]);
 
   /* Records the citizen's own words, then hands off to the describe step. */
   async function handleVoiceCorrection(blob: Blob, mimeType: string) {

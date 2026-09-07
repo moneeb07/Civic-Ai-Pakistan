@@ -21,7 +21,7 @@ import { FormAlert } from "@/components/auth/form-alert";
 import { FormField } from "@/components/auth/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import { formatCnic, isValidCnicFormat, maskCnic } from "@/lib/cnic";
 import { shouldOfferManualFallback } from "@/lib/registration/retake";
 import type { AddressOutcome } from "@/lib/cnic-address-outcome";
@@ -38,7 +38,6 @@ import type { AddressOutcome } from "@/lib/cnic-address-outcome";
 type AddressNotice = AddressOutcome | "manual_accepted";
 import type { CnicAddressData } from "@/lib/registration/schema";
 
-const t = getDictionary();
 
 type Phase = "capture-front" | "capture-back" | "processing" | "review" | "manual";
 
@@ -89,6 +88,7 @@ function TroubleScanningBanner({
   onEnterManually: () => void;
   onDismiss: () => void;
 }) {
+  const t = useT();
   return (
     <div
       role="alert"
@@ -142,6 +142,7 @@ function AddressProblemPanel({
   onEnterManually: () => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   if (outcome === "manual_accepted" || outcome === "available") return null;
 
   const copy =
@@ -183,6 +184,7 @@ function AddressProblemPanel({
 }
 
 export function IdentityFlow() {
+  const t = useT();
   const router = useRouter();
   const { reportStruggle } = useAssistedMode();
 
@@ -915,6 +917,7 @@ function AddressBoxEditor({
   data: CnicAddressData;
   onChange: (next: CnicAddressData) => void;
 }) {
+  const t = useT();
   function set(key: keyof CnicAddressData, value: string) {
     onChange({ ...data, [key]: value.length > 0 ? value : null });
   }
@@ -1034,6 +1037,7 @@ function ExtractedField({
   fromCnic?: boolean;
   optional?: boolean;
 } & Omit<React.ComponentProps<"input">, "value" | "onChange">) {
+  const t = useT();
   return (
     <div>
       <div className="mb-2 flex items-center gap-2">
@@ -1075,6 +1079,7 @@ function GenderField({
   onChange: (value: "" | "Male" | "Female") => void;
   fromCnic?: boolean;
 }) {
+  const t = useT();
   const options: { value: "Male" | "Female"; label: string }[] = [
     { value: "Male", label: t.identityManual.male },
     { value: "Female", label: t.identityManual.female },

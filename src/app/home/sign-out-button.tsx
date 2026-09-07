@@ -6,11 +6,11 @@ import { LogOut } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/lib/auth-client";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 
-const t = getDictionary();
 
 export function SignOutButton({ className }: { className?: string }) {
+  const t = useT();
   const router = useRouter();
   const [pending, setPending] = useState(false);
 

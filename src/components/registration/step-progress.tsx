@@ -1,25 +1,37 @@
+"use client";
+
+/*
+ * A client component purely so it can read the citizen's language.
+ * It fetches nothing and holds no state — but it IS imported by client
+ * components, so it cannot be an async server component, and the
+ * dictionary has to come from the context rather than from cookies().
+ */
 import { Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
+import type { Dictionary } from "@/lib/i18n";
 import type { RegistrationStep } from "@/lib/registration/schema";
 
-const t = getDictionary();
 
 /*
  * Six visible groups. "review" is folded into Identity because, to the citizen,
  * scanning a card and checking what was read are one task.
  */
-const GROUPS: { key: string; steps: RegistrationStep[]; label: string }[] = [
-  { key: "identity", steps: ["identity", "review"], label: t.registration.steps.identity },
-  { key: "contact", steps: ["contact"], label: t.registration.steps.contact },
-  { key: "security", steps: ["security"], label: t.registration.steps.security },
-  { key: "address", steps: ["address"], label: t.registration.steps.address },
-  { key: "photo", steps: ["photo"], label: t.registration.steps.photo },
-  { key: "confirm", steps: ["confirm"], label: t.registration.steps.review },
-];
+function groupsFor(t: Dictionary): { key: string; steps: RegistrationStep[]; label: string }[] {
+  return [
+    { key: "identity", steps: ["identity", "review"], label: t.registration.steps.identity },
+    { key: "contact", steps: ["contact"], label: t.registration.steps.contact },
+    { key: "security", steps: ["security"], label: t.registration.steps.security },
+    { key: "address", steps: ["address"], label: t.registration.steps.address },
+    { key: "photo", steps: ["photo"], label: t.registration.steps.photo },
+    { key: "confirm", steps: ["confirm"], label: t.registration.steps.review },
+  ];
+}
 
 export function StepProgress({ current }: { current: RegistrationStep }) {
+  const t = useT();
+  const GROUPS = groupsFor(t);
   const activeIndex = GROUPS.findIndex((group) => group.steps.includes(current));
 
   return (

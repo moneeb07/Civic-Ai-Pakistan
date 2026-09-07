@@ -7,7 +7,7 @@ import { CircleAlert, LocateFixed, MapPinned } from "lucide-react";
 import { ReportStepHeading } from "@/components/report/report-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
 import {
   ReportApiError,
   submitGpsLocation,
@@ -15,7 +15,6 @@ import {
 } from "@/lib/report/client";
 import type { ReportDto } from "@/lib/report/schema";
 
-const t = getDictionary();
 
 type Mode = "choose" | "locating" | "confirm" | "manual" | "denied";
 
@@ -26,6 +25,7 @@ type Mode = "choose" | "locating" | "confirm" | "manual" | "denied";
  * only" rule.
  */
 export function LocationFlow({ reportId }: { reportId: string }) {
+  const t = useT();
   const router = useRouter();
   const [mode, setMode] = React.useState<Mode>("choose");
   const [result, setResult] = React.useState<ReportDto | null>(null);

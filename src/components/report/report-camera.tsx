@@ -16,19 +16,26 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { getDictionary } from "@/lib/i18n";
+import { useT } from "@/components/i18n/locale-provider";
+import type { Dictionary } from "@/lib/i18n";
 import { prepareReportImage } from "@/lib/image";
 
-const t = getDictionary();
 
 type CameraState = "idle" | "starting" | "live" | "denied" | "unavailable";
 
-/** The three tips beside the illustration. Icon, a real dictionary title, a real dictionary body. */
-const TIPS = [
-  { icon: Camera, title: t.report.tipDownTitle, body: t.report.tipDownBody },
-  { icon: Circle, title: t.report.tipCenteredTitle, body: t.report.tipCenteredBody },
-  { icon: Sun, title: t.report.tipLightingTitle, body: t.report.tipLightingBody },
-];
+/*
+ * The three tips beside the illustration. Icon, a real dictionary title, a
+ * real dictionary body — built per render because the titles are translated
+ * and a module constant would freeze them to whichever language the process
+ * started in.
+ */
+function tipsFor(t: Dictionary) {
+  return [
+    { icon: Camera, title: t.report.tipDownTitle, body: t.report.tipDownBody },
+    { icon: Circle, title: t.report.tipCenteredTitle, body: t.report.tipCenteredBody },
+    { icon: Sun, title: t.report.tipLightingTitle, body: t.report.tipLightingBody },
+  ];
+}
 
 /*
  * The four examples under "Common issues you can report".
@@ -78,6 +85,7 @@ export function ReportCamera({
   onCaptured: (image: { blob: Blob; dataUrl: string }) => void;
   disabled?: boolean;
 }) {
+  const t = useT();
   const videoRef = React.useRef<HTMLVideoElement>(null);
   const streamRef = React.useRef<MediaStream | null>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -273,7 +281,7 @@ export function ReportCamera({
           </div>
 
           <ul className="space-y-4">
-            {TIPS.map((tip) => {
+            {tipsFor(t).map((tip) => {
               const Icon = tip.icon;
               return (
                 <li key={tip.title} className="flex items-start gap-3">
