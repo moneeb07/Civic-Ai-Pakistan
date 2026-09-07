@@ -35,12 +35,26 @@ import { join } from "node:path";
  * makes ordinary crash recovery automatic instead of a manual, data-losing
  * fix every time.
  */
+/*
+ * The turbopackIgnore comments below are load-bearing for DEPLOYMENT, not for
+ * behaviour.
+ *
+ * `dataDir` is a runtime value, so Turbopack cannot see which file is touched
+ * and conservatively assumes the whole project might be — which makes it trace
+ * every source file and the entire public/ folder into the serverless bundle.
+ * On a platform with a function size limit that is not a warning, it is a
+ * failed deploy, for code that never runs in production at all: this path is
+ * only reached when DATABASE_URL is unset, and production requires it.
+ *
+ * The comments tell the bundler to stop analysing these calls. Nothing about
+ * what they do at runtime changes.
+ */
 export function clearStaleLock(dataDir: string): void {
   for (const name of ["postmaster.pid", ".s.PGSQL.5432.lock.out"]) {
-    const path = join(dataDir, name);
-    if (existsSync(path)) {
+    const path = join(/* turbopackIgnore: true */ dataDir, name);
+    if (existsSync(/* turbopackIgnore: true */ path)) {
       try {
-        rmSync(path);
+        rmSync(/* turbopackIgnore: true */ path);
       } catch {
         // Best-effort: if this can't be removed, PGlite's own error is still
         // clearer than failing silently here.
