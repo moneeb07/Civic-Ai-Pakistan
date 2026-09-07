@@ -8,3 +8,11 @@ dist/
 # truth and these are never committed.
 /android
 /ios
+
+# Per-machine config — see the example file beside it
+.env
+.env.local
+
+# The example templates are documentation, not secrets, and a fresh clone
+# is unusable without them — the README's first step copies one.
+!.env.example

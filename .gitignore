@@ -50,3 +50,6 @@ next-env.d.ts
 logs/
 
 admin_prompt.md
+# The example templates are documentation, not secrets, and a fresh clone
+# is unusable without them — the README's first step copies one.
+!.env.example

@@ -16,17 +16,141 @@ are public.
 
 ## Contents
 
+- [Quick start](#quick-start) — web running in 5 minutes
+- [Running the mobile app](#running-the-mobile-app)
 - [What it does](#what-it-does)
 - [How it works](#how-it-works)
 - [Tech stack](#tech-stack)
-- [Running the web app](#running-the-web-app)
-- [Running the mobile app](#running-the-mobile-app)
-- [Environment variables](#environment-variables)
+- [Configuration reference](#configuration-reference)
 - [AI providers](#ai-providers)
 - [Test accounts](#test-accounts)
 - [Project layout](#project-layout)
-- [Commands](#commands)
+- [All commands](#all-commands)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## Quick start
+
+**You need:** Node.js 20 or newer (24 recommended), git, and one AI API key.
+No database install, no Android SDK, no Xcode.
+
+```bash
+git clone https://github.com/MuhammadSami-04/Civic-Ai-Pakistan.git
+cd Civic-Ai-Pakistan
+
+npm install
+cp .env.example .env.local
+```
+
+Now open `.env.local` and set **two** values:
+
+```bash
+# 1. Any random string — generate one with:  openssl rand -base64 32
+BETTER_AUTH_SECRET=paste-the-generated-value-here
+
+# 2. One AI key. OpenAI is the fastest and most accurate; see AI providers below.
+OPENAI_API_KEY=sk-...
+```
+
+Then:
+
+```bash
+npm run db:migrate     # creates the database
+npm run db:seed        # optional: demo departments + government accounts
+npm run dev
+```
+
+Open **<http://localhost:3000>**. That's the whole web setup.
+
+> **Where's the database?** Leave `DATABASE_URL` empty and the app runs on an
+> embedded PostgreSQL (PGlite) at `./.data/civicai`. Nothing to install. Set
+> `DATABASE_URL` to a real PostgreSQL or Supabase connection string when you
+> want data that outlives your laptop.
+
+### Verify it works
+
+```bash
+npm run check:ai       # is your AI key live? which models answer?
+npm test               # 573 tests
+```
+
+---
+
+## Running the mobile app
+
+The phone app talks to the **web app's API**, so keep `npm run dev` running.
+
+**Nothing here is hardcoded to any one developer.** The API address is detected
+from your machine, and you build against your own Expo account.
+
+### Step 1 — install and configure
+
+```bash
+cd mobile
+npm install
+cp .env.example .env     # optional; see below
+```
+
+The API address auto-detects your computer's LAN IP, so **most people can skip
+`.env` entirely**. Override it only if auto-detection guesses wrong (VPN,
+Docker, several network adapters):
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=http://192.168.1.42:3000
+```
+
+Find your address with `hostname -I` (Linux), `ipconfig getifaddr en0` (macOS),
+or `ipconfig` (Windows).
+
+> Never use `localhost` — on a physical phone that means the *phone's* own
+> localhost. Your phone and computer must be on the same Wi-Fi.
+
+### Step 2 — create your own Expo project
+
+The app uses native modules (camera, microphone, GPS) that aren't in Expo Go, so
+it needs a custom **dev client**. That's built against an Expo project you own:
+
+```bash
+npx eas-cli login       # free account: https://expo.dev/signup
+npx eas-cli init        # creates YOUR project, writes the id to .env
+```
+
+> You cannot build against someone else's project id. EAS rejects it with
+> `Entity not authorized`, which reads like a broken login but is really a
+> permissions problem. `eas init` gives you your own.
+
+### Step 3 — build the dev client (once, ~15 min)
+
+```bash
+npx eas-cli build --profile development --platform android
+```
+
+It builds **in the cloud** — no Android SDK, no Java, no emulator needed. When
+it finishes, open the link it prints **on your phone** and install the APK.
+
+You only repeat this when native dependencies change. Ordinary JavaScript
+changes hot-reload.
+
+### Step 4 — run it
+
+```bash
+npx expo start --dev-client
+```
+
+Scan the QR code with the CivicAI dev client you just installed (use the app's
+own scanner, not the system camera).
+
+Phone on a different network?
+
+```bash
+npx expo start --dev-client --tunnel
+```
+
+### iOS
+
+Same, with `--platform ios`. A physical iPhone additionally needs an Apple
+Developer account for signing; the simulator does not.
 
 ---
 
@@ -37,7 +161,7 @@ are public.
 | | |
 |---|---|
 | **CNIC sign-up** | Photograph the front and back of your National Identity Card. AI reads the fields; you confirm every one before anything is saved. |
-| **Report a problem** | Photo → AI identifies the issue → describe it (voice or text) → pin the location → review → submit. Four steps, one screen each. |
+| **Report a problem** | Photo → AI identifies the issue → describe it (voice or text) → pin the location → review → submit. |
 | **Urdu voice** | The AI's finding is **spoken aloud in Urdu**, and you can reply by speaking. Built for citizens who can't read English — or can't read. |
 | **Track it** | Every report gets a code. Watch it move through the department's real workflow stages. |
 | **Answer questions** | Departments can ask you for clarification; you reply in-app. |
@@ -75,7 +199,7 @@ Platform Admin  ──  creates organizations, sees across all of them
 ```
  photo ──▶ [ AI vision ]  what is this? + one Urdu sentence
              │
-             ├─▶ 🔊 spoken aloud in Urdu, citizen confirms or corrects by voice
+             ├─▶ 🔊 spoken aloud in Urdu; citizen confirms or corrects by voice
              │
  voice ───▶ [ AI speech-to-text ]  Urdu-first transcription
              │
@@ -130,107 +254,11 @@ See [`src/lib/gov/ranking.ts`](src/lib/gov/ranking.ts).
 | Camera | React Native Vision Camera 4 (CNIC auto-capture on mobile) |
 | Tests | `node:test` — 573 tests, no framework |
 
-**Requirements:** Node.js 20+ (24 recommended), and a phone or emulator for the
-mobile app.
-
 ---
 
-## Running the web app
+## Configuration reference
 
-```bash
-git clone git@github.com:MuhammadSami-04/Civic-Ai-Pakistan.git
-cd Civic-Ai-Pakistan
-
-npm install
-cp .env.example .env.local     # then fill it in — see below
-npm run db:migrate
-npm run db:seed                # optional: demo orgs, departments, officers
-npm run dev
-```
-
-Open **<http://localhost:3000>**.
-
-The two variables you cannot skip:
-
-```bash
-BETTER_AUTH_SECRET=            # openssl rand -base64 32
-OPENAI_API_KEY=                # or GEMINI_API_KEY / OPENROUTER_API_KEY
-```
-
-Leave `DATABASE_URL` empty and it uses an embedded PGlite database at
-`./.data/civicai` — no PostgreSQL install needed. Set it to a Supabase
-connection string for anything shared or persistent.
-
-> **PGlite is single-writer.** The dev server holds the lock. Running
-> `db:seed` or any script while `npm run dev` is running will crash one of
-> them. Stop the dev server first, or use Supabase.
-
----
-
-## Running the mobile app
-
-The mobile app talks to the **web app's API**, so the web server must be
-running first.
-
-### 1. Point the app at your machine
-
-Find your LAN IP:
-
-```bash
-hostname -I | awk '{print $1}'
-```
-
-Set it in [`mobile/app.json`](mobile/app.json) → `expo.extra.apiBaseUrl`:
-
-```json
-"apiBaseUrl": "http://192.168.1.42:3000"
-```
-
-`localhost` will **not** work — that's the phone's own localhost, not your
-computer's. Phone and computer must be on the same Wi-Fi.
-
-### 2. Build the dev client (once)
-
-The app uses native modules (camera, microphone, GPS) that aren't in Expo Go, so
-it needs a custom dev client. Build it in the cloud — no Android SDK required:
-
-```bash
-cd mobile
-npx eas-cli build --profile development --platform android
-```
-
-Takes ~10–15 minutes. **Install the resulting APK on your phone** when it
-finishes — the build alone doesn't update the device.
-
-You need a rebuild only when native dependencies change or the EAS project
-changes. Ordinary JavaScript changes hot-reload.
-
-### 3. Run it
-
-```bash
-cd mobile
-npx expo start --dev-client
-```
-
-Scan the QR code with the installed CivicAI dev client (use its own scanner,
-not the system camera app).
-
-Not on the same network?
-
-```bash
-npx expo start --dev-client --tunnel
-```
-
-> `npx expo run:android` builds **locally** and needs the full Android SDK
-> (~10 GB), Java 17 specifically, and a connected device. The EAS route above
-> avoids all of it.
-
----
-
-## Environment variables
-
-Copy [`.env.example`](.env.example) to `.env.local`. Everything is documented
-inline there; the essentials:
+### Web — `.env.local` (copy from [`.env.example`](.env.example))
 
 | Variable | Required | Purpose |
 |---|---|---|
@@ -238,11 +266,27 @@ inline there; the essentials:
 | `BETTER_AUTH_URL` | yes | `http://localhost:3000` in development |
 | `DATABASE_URL` | no | Empty = embedded PGlite. Set for PostgreSQL/Supabase |
 | `AI_PROVIDER` | no | `openai` \| `gemini` \| `openrouter`. Unset = first key found |
-| `OPENAI_API_KEY` | one of | |
-| `GEMINI_API_KEY` | these | |
-| `OPENROUTER_API_KEY` | three | |
+| `OPENAI_API_KEY` | one | |
+| `GEMINI_API_KEY` | of | |
+| `OPENROUTER_API_KEY` | these | |
 | `AI_LOG` | no | `off` disables the AI transcript in `logs/ai/` |
 | `EMAIL_ROUTING_ENABLED` | no | `false` prints invite links to the console |
+
+### Mobile — `mobile/.env` (copy from [`mobile/.env.example`](mobile/.env.example))
+
+**All optional.** A fresh clone runs with none of them set.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `EXPO_PUBLIC_API_BASE_URL` | auto-detected LAN IP | Where the phone reaches the API |
+| `EXPO_PUBLIC_API_PORT` | `3000` | Port only, if the host is still detected |
+| `EAS_PROJECT_ID` | none | Your Expo project. `eas init` writes it |
+| `EXPO_OWNER` | none | Your Expo username |
+
+These live in `mobile/.env` (gitignored), **not** in `app.json`, so every
+developer has their own and nobody's push overwrites anyone else's.
+[`mobile/app.config.js`](mobile/app.config.js) merges them over the shared
+`app.json` at build time.
 
 > ⚠️ **`logs/ai/` contains personal data.** The CNIC transcript includes a
 > citizen's name, CNIC number, date of birth and address in clear text — it is
@@ -272,16 +316,17 @@ Each task has an ordered **fallback chain**. If a model is rate-limited, busy or
 withdrawn, the request walks to the next one. A reply that parses as JSON but
 fails the service's own schema counts as a failed rung, not a failed request.
 
-Check what's actually alive before a demo:
-
 ```bash
 npm run check:ai              # the active provider
 npm run check:ai -- --all     # every provider you have a key for
 npm run check:cnic -- front.jpg   # one real CNIC read
 ```
 
-Measured on the same synthetic card: OpenAI **3.4s**, Gemini 88s, OpenRouter
-74s — which is why `openai` is the recommended default.
+Measured on the same test card: OpenAI **3.4s**, Gemini 88s, OpenRouter 74s.
+
+**No budget?** `OPENROUTER_API_KEY` with the free tier works end to end — it is
+slower and occasionally rate-limited, which is exactly what the fallback chains
+are for.
 
 ### Urdu voice
 
@@ -291,14 +336,13 @@ Measured on the same synthetic card: OpenAI **3.4s**, Gemini 88s, OpenRouter
 - **Text-to-speech** is generated server-side, because `speechSynthesis` can
   only use voices the *device* has installed and most desktops have no Urdu
   voice — it then reports success and plays silence. Server audio makes the
-  voice a property of the app. Browser synthesis remains the fallback for
-  providers with no voice of their own.
+  voice a property of the app, not of the device.
 
 ---
 
 ## Test accounts
 
-After `npm run db:seed`, password for **all** accounts is `CivicAI@2026`:
+After `npm run db:seed`, the password for **all** accounts is `CivicAI@2026`:
 
 | Role | Email | Can do |
 |---|---|---|
@@ -310,6 +354,8 @@ After `npm run db:seed`, password for **all** accounts is `CivicAI@2026`:
 
 Government staff sign in at **`/gov/login`** — there is deliberately no public
 sign-up for officers. Citizens sign up at `/register` with a CNIC.
+
+> Development credentials for a seeded database. Never deploy a seeded database.
 
 ---
 
@@ -338,11 +384,11 @@ src/
   db/schema.ts            18 tables + gov/collaboration.ts (9 more)
 
 mobile/
+  app.json                shared config — committed
+  app.config.js           per-machine overrides from env — committed
+  .env                    YOUR machine — gitignored
   app/                    Expo Router — tabs, register/, report/new/, gov screens
-  src/
-    api/                  client, cookie handling, shared types
-    cnic/                 vision-camera auto-capture
-    screens/              citizen-home, officer-home
+  src/                    api client, CNIC auto-capture, screens
 
 scripts/                  migrate, seed, check-ai, check-cnic
 tests/                    573 tests
@@ -351,9 +397,9 @@ code-dashboard/           architecture visualizer (npm run dashboard)
 
 ---
 
-## Commands
+## All commands
 
-### Web
+### Web (repo root)
 
 | Command | What it does |
 |---|---|
@@ -367,48 +413,80 @@ code-dashboard/           architecture visualizer (npm run dashboard)
 | `npm run db:migrate` | Apply migrations |
 | `npm run db:seed` | Demo orgs, departments, officers |
 | `npm run check:ai` | Probe the active provider's model chains |
+| `npm run check:ai -- --all` | Probe every provider you have a key for |
 | `npm run check:cnic -- img.jpg` | Run one real CNIC validation |
 | `npm run dashboard` | Architecture visualizer on :4321 |
 
-### Mobile
+### Mobile (`cd mobile`)
 
 | Command | What it does |
 |---|---|
+| `npx eas-cli login` | Sign in to Expo |
+| `npx eas-cli init` | Create your own Expo project |
+| `npx eas-cli build --profile development --platform android` | Cloud dev-client build |
 | `npx expo start --dev-client` | Metro bundler + QR code |
 | `npx expo start --dev-client --tunnel` | Same, across different networks |
-| `npx eas-cli build --profile development --platform android` | Cloud dev-client build |
+| `npx expo config --type public` | Show the resolved config |
 | `npm run typecheck` | `tsc --noEmit` |
 
 ---
 
 ## Troubleshooting
 
+**`Entity not authorized: AppEntity[...]` when building**
+The `EAS_PROJECT_ID` belongs to someone else's Expo account. Run
+`npx eas-cli init` to create your own.
+
+**`Owner of project ... does not match owner specified in the "owner" field`**
+`EXPO_OWNER` in `mobile/.env` doesn't match the project owner. Set it to your
+Expo username, or remove the line entirely.
+
+**`request to https://api.expo.dev/graphql failed` with an empty reason**
+Broken IPv6 on your network — Node races IPv6 against IPv4 and gives up after
+250 ms instead of falling back:
+```bash
+NODE_OPTIONS="--network-family-autoselection-attempt-timeout=2000" npx eas-cli build ...
+```
+Add that `export` to your shell profile to make it permanent.
+
+**Mobile app loads but every request fails**
+Auto-detection picked the wrong network interface. Set
+`EXPO_PUBLIC_API_BASE_URL` in `mobile/.env` to your real LAN address, confirm
+`npm run dev` is running, and check the phone is on the same Wi-Fi.
+
 **"We couldn't check this picture" on CNIC scan**
 Run `npm run check:ai`. Usually a missing or exhausted API key. The message is
 deliberately vague to citizens — the real reason is in `logs/ai/`.
 
-**Mobile app loads but every request fails**
-`apiBaseUrl` in `mobile/app.json` doesn't match your machine's current LAN IP,
-or the phone is on a different network. Check `hostname -I`, and confirm the web
-server is running.
-
-**QR code scans but nothing happens**
-The dev client was built against a different EAS project. Rebuild:
-`npx eas-cli build --profile development --platform android`.
-
 **`Cannot find native module 'ExponentAV' / 'ExpoLocation'`**
-Native dependency added since your dev client was built. Rebuild it.
+A native dependency was added since your dev client was built. Rebuild it.
 
 **PGlite `Aborted()` or lock errors**
-Two processes are using the embedded database. Stop `npm run dev` before
-running scripts, or move to Supabase.
+PGlite is single-writer and the dev server holds the lock. Stop `npm run dev`
+before running `db:seed` or any script — or move to Supabase.
 
 **No voice on the confirm screen**
-Expected on a machine with no Urdu voice installed — the app falls back to
+Expected where the device has no Urdu voice — the app falls back to
 server-generated audio, which needs a working AI provider. Check `npm run check:ai`.
 
 **`expo run:android` fails on the Android SDK**
-It needs the full local toolchain. Use the EAS cloud build instead.
+It builds locally and needs the full toolchain (~10 GB, plus Java 17). Use the
+EAS cloud build instead.
+
+---
+
+## Contributing
+
+`mobile/app.json` and `.env.example` files are **shared** — changes there affect
+everyone. `mobile/.env` and `.env.local` are **yours** and are gitignored. If
+you find yourself wanting to commit a machine-specific value, it belongs in an
+env var instead.
+
+Before opening a PR:
+
+```bash
+npm run typecheck && npm run lint && npm test
+```
 
 ---
 

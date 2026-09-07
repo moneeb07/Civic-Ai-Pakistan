@@ -48,14 +48,9 @@
       ]
     },
     "extra": {
-      "apiBaseUrl": "http://10.202.32.127:3000",
       "router": {
         "origin": false
-      },
-      "eas": {
-        "projectId": "ec2d5b6b-4ac2-411f-b5eb-403b786d6466"
       }
-    },
-    "owner": "msami.12345"
+    }
   }
 }

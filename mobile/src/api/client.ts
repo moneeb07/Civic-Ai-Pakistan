@@ -24,7 +24,18 @@ const SESSION_KEY = "civicai.session-cookie";
 function baseUrl(): string {
   const configured = Constants.expoConfig?.extra?.apiBaseUrl;
   if (typeof configured !== "string" || configured.length === 0) {
-    throw new Error("apiBaseUrl is not configured in app.json → expo.extra.");
+    /*
+     * Practically unreachable: app.config.js falls back to this machine's
+     * detected LAN address, so there is always a value. It stays as a real
+     * error rather than a silent default because a WRONG address is the one
+     * failure that looks like a broken backend instead of a broken setting —
+     * every screen loads and every request dies.
+     */
+    throw new Error(
+      "apiBaseUrl is not set. Copy mobile/.env.example to mobile/.env and set " +
+        "EXPO_PUBLIC_API_BASE_URL to your computer's LAN address, e.g. " +
+        "http://192.168.1.42:3000",
+    );
   }
   return configured.replace(/\/$/, "");
 }
