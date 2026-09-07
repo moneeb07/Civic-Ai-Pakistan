@@ -7,8 +7,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@/api/hooks";
 import type { TrackedReport, TrackingSummary } from "@/api/types";
 import { StatusProgress } from "@/civic/status-progress";
+import { deriveStatus, statusPresentation } from "@/civic/status";
 import { Empty, ErrorNote, Loading, Screen } from "@/components/ui";
-import { colors, formatDate, radius, spacing } from "@/theme";
+import { colors, formatDate, radius, spacing, STAT_TONES } from "@/theme";
 
 interface TrackingPayload {
   summary: TrackingSummary;
@@ -76,9 +77,9 @@ export default function MyReportsScreen() {
 
             {summary ? (
               <View style={styles.statStrip}>
-                <Strip label="Reported" value={summary.reported} tint="#a81d33" bg="#fdf1f3" />
-                <Strip label="In process" value={summary.inProcess} tint="#c2790a" bg="#fdf6ea" />
-                <Strip label="Resolved" value={summary.resolved} tint="#0b8f6a" bg="#eefaf5" />
+                <Strip tone="danger" label="Reported" value={summary.reported} />
+                <Strip tone="warning" label="In process" value={summary.inProcess} />
+                <Strip tone="success" label="Resolved" value={summary.resolved} />
               </View>
             ) : null}
 
@@ -113,12 +114,27 @@ export default function MyReportsScreen() {
         renderItem={({ item }) => {
           const issue = item.issue;
 
+          /*
+           * The same colour, at a glance, as the stat tile it will fall
+           * under above — real derivation (`deriveStatus`), not a colour
+           * picked to match the label text. A report with no issue yet has
+           * nothing to derive a status FROM, so it gets no accent at all
+           * rather than a guessed one.
+           */
+          const accentColor = issue
+            ? statusPresentation(deriveStatus(issue)).color
+            : colors.lineStrong;
+
           return (
             <Pressable
               accessibilityRole="button"
               disabled={issue === null}
               onPress={() => issue && router.push(`/report/${issue.issueCode}`)}
-              style={[styles.card, issue === null && { opacity: 0.7 }]}
+              style={[
+                styles.card,
+                { borderLeftColor: accentColor },
+                issue === null && { opacity: 0.7 },
+              ]}
             >
               <View style={styles.cardTop}>
                 <Text style={styles.code}>
@@ -174,10 +190,27 @@ export default function MyReportsScreen() {
   );
 }
 
-function Strip({ label, value, tint, bg }: { label: string; value: number; tint: string; bg: string }) {
+/**
+ * Icon-chip stat tile, matching the Home dashboard exactly — same
+ * `STAT_TONES` palette, so the red/amber/green a citizen learns on one
+ * screen already means the same thing on the other.
+ */
+function Strip({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: keyof typeof STAT_TONES;
+}) {
+  const palette = STAT_TONES[tone];
   return (
-    <View style={[styles.strip, { backgroundColor: bg }]}>
-      <Text style={[styles.stripValue, { color: tint }]}>{value}</Text>
+    <View style={[styles.strip, { backgroundColor: palette.bg }]}>
+      <View style={[styles.stripIcon, { backgroundColor: palette.fg }]}>
+        <Ionicons name={palette.icon} size={13} color={colors.white} />
+      </View>
+      <Text style={[styles.stripValue, { color: palette.fg }]}>{value}</Text>
       <Text style={styles.stripLabel}>{label}</Text>
     </View>
   );
@@ -189,6 +222,14 @@ const styles = StyleSheet.create({
   subtitle: { marginTop: 2, fontSize: 14, color: colors.muted },
   statStrip: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.lg },
   strip: { flex: 1, padding: spacing.md, borderRadius: radius.md, alignItems: "center" },
+  stripIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
+  },
   stripValue: { fontSize: 20, fontWeight: "800" },
   stripLabel: { fontSize: 11, color: colors.muted, marginTop: 1 },
   search: {
@@ -209,6 +250,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.line,
+    borderLeftWidth: 4,
     borderRadius: radius.lg,
     padding: spacing.lg,
   },

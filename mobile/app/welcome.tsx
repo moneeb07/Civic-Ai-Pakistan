@@ -76,6 +76,7 @@ export default function WelcomeScreen() {
   const { me, loading } = useSession();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const [menuOpen, setMenuOpen] = React.useState(false);
 
   if (loading) {
     return (
@@ -108,16 +109,58 @@ export default function WelcomeScreen() {
                 </View>
               </View>
 
+              {/*
+                A real hamburger, matching the reference exactly — not the
+                text chip an earlier pass used. It opens the same menu the
+                web app's mobile header discloses: authority access is one
+                tap behind it rather than a permanent line of text competing
+                with the logo for the same strip of sky.
+              */}
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.push("/sign-in?intent=authority")}
-                style={({ pressed }) => [styles.authorityChip, pressed && styles.pressed]}
+                accessibilityLabel={menuOpen ? "Close menu" : "Open menu"}
+                onPress={() => setMenuOpen((value) => !value)}
+                style={({ pressed }) => [styles.menuButton, pressed && styles.pressed]}
               >
-                <Ionicons name="lock-closed-outline" size={13} color={colors.civic700} />
-                <Text style={styles.authorityChipText}>Authority</Text>
+                <Ionicons name={menuOpen ? "close" : "menu"} size={20} color={colors.ink} />
               </Pressable>
+
+              {menuOpen ? (
+                <View style={styles.menuPanel}>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setMenuOpen(false);
+                      router.push("/sign-in?intent=authority");
+                    }}
+                    style={({ pressed }) => [styles.menuItem, pressed && styles.pressed]}
+                  >
+                    <Ionicons name="lock-closed-outline" size={15} color={colors.ink} />
+                    <Text style={styles.menuItemText}>Authority Sign In</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setMenuOpen(false);
+                      router.push("/redeem");
+                    }}
+                    style={({ pressed }) => [styles.menuItem, pressed && styles.pressed]}
+                  >
+                    <Ionicons name="mail-open-outline" size={15} color={colors.ink} />
+                    <Text style={styles.menuItemText}>Redeem an invitation</Text>
+                  </Pressable>
+                </View>
+              ) : null}
             </View>
 
+            {/*
+              `maxWidth` keeps this on the plain sky rather than letting the
+              last word wrap into the flag's own white silk, where a shadow
+              tuned for a dark photo does nothing — a light word needs a dark
+              background to sit on, and the flag's white corner is the one
+              part of this image that isn't one. Narrower text wraps a line
+              earlier and never gets there.
+            */}
             <View style={styles.eyebrowRow}>
               <View style={styles.eyebrowItem}>
                 <Ionicons name="shield-checkmark-outline" size={12} color={colors.civic700} />
@@ -179,21 +222,25 @@ export default function WelcomeScreen() {
           </View>
 
           {/*
-            The trust bar, anchored to the bottom of the photo the same way
-            it sits at the bottom of the photo on web — the one dark, solid
-            surface in the whole hero, which is what makes white text on it
-            need no shadow of its own.
+            The trust bar, anchored to the bottom of the photo — the one
+            dark, solid surface in the whole hero, which is what makes white
+            text on it need no shadow of its own. Two columns, each its own
+            short stack, rather than one four-row list: "Built for Pakistan"
+            sits directly above "Free", not beside it, and two compact
+            columns read as one footer strip instead of a ladder of text.
           */}
           <View style={styles.trustBar}>
-            {TRUST_FACTS.map((fact) => (
-              <View key={fact.value} style={styles.trustItem}>
-                <Ionicons name={fact.icon} size={14} color={colors.civic200} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.trustValue}>{fact.value}</Text>
-                  <Text style={styles.trustDetail}>{fact.detail}</Text>
-                </View>
-              </View>
-            ))}
+            <View style={styles.trustColumn}>
+              {TRUST_FACTS.slice(0, 2).map((fact) => (
+                <TrustFact key={fact.value} fact={fact} />
+              ))}
+            </View>
+            <View style={styles.trustDivider} />
+            <View style={styles.trustColumn}>
+              {TRUST_FACTS.slice(2, 4).map((fact) => (
+                <TrustFact key={fact.value} fact={fact} />
+              ))}
+            </View>
           </View>
         </ImageBackground>
 
@@ -252,12 +299,49 @@ export default function WelcomeScreen() {
   );
 }
 
+/** One line of the trust footer — an icon and two short lines, nothing wider. */
+function TrustFact({ fact }: { fact: (typeof TRUST_FACTS)[number] }) {
+  return (
+    <View style={styles.trustItem}>
+      <Ionicons name={fact.icon} size={13} color={colors.civic200} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.trustValue} numberOfLines={1}>
+          {fact.value}
+        </Text>
+        <Text style={styles.trustDetail} numberOfLines={1}>
+          {fact.detail}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  hero: { width: "100%" },
+  /*
+   * `aspectRatio` locked to the photo's own — 852:1846, which comes out to
+   * almost exactly one full phone screen (845px tall at 390px wide). This
+   * was the actual bug: the box's height used to be whatever the text and
+   * buttons added up to, roughly 600px, so `resizeMode="cover"` had to crop
+   * a 1846px-tall photo down to fit a 600px box — and the ~245px it cut was
+   * the bottom of the image, exactly where the monuments and their
+   * reflection live. The trust bar then landed on top of whatever sliver of
+   * skyline survived that crop instead of below a complete one. Matching
+   * the box to the photo's own shape means there is almost nothing left to
+   * crop, at any screen width, the same fix already proven on the
+   * dashboard's own hero photo.
+   */
+  hero: { width: "100%", aspectRatio: 852 / 1846 },
   scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.42)" },
   heroContent: { paddingHorizontal: spacing.xl, paddingBottom: spacing.lg },
 
-  brandRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  // `position: relative` is what lets the dropdown below anchor to this row
+  // rather than to the whole screen.
+  brandRow: {
+    position: "relative",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   brandGroup: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   logoMark: {
     width: 32,
@@ -270,21 +354,55 @@ const styles = StyleSheet.create({
   brand: { fontSize: 17, fontWeight: "800", color: colors.ink, letterSpacing: -0.3, lineHeight: 18 },
   brandSub: { fontSize: 9, fontWeight: "700", color: colors.muted, letterSpacing: 1 },
 
-  authorityChip: {
-    flexDirection: "row",
+  menuButton: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.sm,
     alignItems: "center",
-    gap: 4,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: radius.pill,
-    backgroundColor: "rgba(255,255,255,0.92)",
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
+    justifyContent: "center",
+    backgroundColor: "rgba(241,250,246,0.95)",
   },
-  authorityChipText: { fontSize: 12, fontWeight: "700", color: colors.civic700 },
   pressed: { opacity: 0.75 },
 
-  eyebrowRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", marginTop: spacing.xl },
+  // Anchored under the button by `top`, right-aligned by `right: 0` against
+  // the relatively-positioned brandRow — it opens over the photo, so it gets
+  // its own solid surface rather than inheriting the transparent header.
+  menuPanel: {
+    position: "absolute",
+    top: 46,
+    right: 0,
+    minWidth: 210,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    paddingVertical: spacing.xs,
+    shadowColor: colors.ink,
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+    zIndex: 10,
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.md,
+  },
+  menuItemText: { fontSize: 14, fontWeight: "600", color: colors.ink },
+
+  // `maxWidth` keeps "Stronger Pakistan" wrapping to its own line instead of
+  // reaching the flag's white silk, where a shadow tuned for a photo does
+  // nothing — see the comment above this row in the component.
+  eyebrowRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    maxWidth: "78%",
+    marginTop: spacing.xl,
+  },
   eyebrowItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   eyebrowStrong: { fontSize: 11, fontWeight: "800", letterSpacing: 1, color: colors.civic700 },
   eyebrowDim: { fontSize: 11, fontWeight: "700", letterSpacing: 0.6, color: colors.muted },
@@ -361,16 +479,31 @@ const styles = StyleSheet.create({
     lineHeight: 13,
   },
 
+  /*
+   * A sibling of `heroContent`, not a child of it — so it is already the
+   * full width of the photo with nothing to cancel. It reads as the photo's
+   * own footer edge because it genuinely is one, edge to edge, rather than
+   * another inset card floating on top of it.
+   *
+   * `marginTop: "auto"` — not a fixed spacing value — is what actually pins
+   * it to the bottom of the now much taller, aspect-locked photo. Flowed
+   * normally it would sit directly under the feature chips with a few
+   * hundred px of bare photo left below it; `auto` consumes all of that
+   * leftover space instead, the same push-to-bottom technique the web
+   * hero's own trust bar uses.
+   */
   trustBar: {
-    marginTop: spacing.xl,
+    flexDirection: "row",
+    marginTop: "auto",
     backgroundColor: "rgba(0,59,47,0.88)",
     paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    gap: spacing.sm,
+    paddingVertical: spacing.sm + 2,
   },
-  trustItem: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  trustValue: { fontSize: 13.5, fontWeight: "700", color: colors.white },
-  trustDetail: { fontSize: 10.5, color: "rgba(255,255,255,0.65)" },
+  trustColumn: { flex: 1, gap: 6 },
+  trustDivider: { width: 1, marginHorizontal: spacing.md, backgroundColor: "rgba(255,255,255,0.18)" },
+  trustItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  trustValue: { fontSize: 12, fontWeight: "700", color: colors.white },
+  trustDetail: { fontSize: 9.5, color: "rgba(255,255,255,0.65)" },
 
   authoritySection: {
     paddingHorizontal: spacing.xl,

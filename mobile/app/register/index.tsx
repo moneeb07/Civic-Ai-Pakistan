@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -9,6 +9,31 @@ import { useRegistration, type CnicAddress } from "@/registration/context";
 import { planRetake, type AffectedSide, type CnicSide } from "@/registration/retake";
 import { RegistrationShell, StepHeading, Note } from "@/registration/shell";
 import { colors, radius, spacing } from "@/theme";
+
+const cnicFrontImage = require("../../assets/images/cnic-front.webp");
+const cnicBackImage = require("../../assets/images/cnic-back.webp");
+
+/*
+ * The two specimen images, and the aspect ratio each is locked to.
+ *
+ * A real CNIC is a landscape ID-1 card (85.6 x 54mm, ~1.586:1), and these
+ * are shown that way deliberately — "horizontal CNIC images", not a card
+ * squeezed into a portrait crop to fit a narrow phone column. Each ratio is
+ * the SPECIMEN FILE'S OWN exact width/height, not the generic 1.586, so
+ * `resizeMode="contain"` never has to guess and never introduces a sliver
+ * of letterboxing.
+ */
+const CNIC_SPECIMENS = [
+  { side: "front" as const, source: cnicFrontImage, ratio: 880 / 551, label: "Front — name, number, dates" },
+  { side: "back" as const, source: cnicBackImage, ratio: 880 / 577, label: "Back — your address" },
+];
+
+const CNIC_TIPS = [
+  { icon: "sunny-outline", text: "Rest the card on a flat surface, in even light." },
+  { icon: "camera-outline", text: "Fill the frame with the card and hold it steady." },
+  { icon: "person-outline", text: "The front carries your name, number and dates." },
+  { icon: "home-outline", text: "The back carries your present and permanent address." },
+] as const;
 
 /*
  * Step one: read the CNIC.
@@ -339,6 +364,53 @@ export default function IdentityScreen() {
         </View>
       ) : null}
 
+      {/*
+        What to expect, before any camera opens — a specimen of both sides
+        and the four things that actually decide whether a scan reads
+        cleanly. This is deliberately ABOVE the "Scan my CNIC" button rather
+        than beside a camera view: the citizen sees exactly what is being
+        asked for while nothing is being asked of their camera yet, and the
+        real capture screen further down is reached the same way it always
+        was — by pressing that button.
+      */}
+      <View style={styles.reference}>
+        <Text style={styles.referenceEyebrow}>WHAT WE NEED</Text>
+
+        <View style={styles.specimenRow}>
+          {CNIC_SPECIMENS.map((specimen) => (
+            <View key={specimen.side} style={styles.specimenBlock}>
+              <View style={[styles.specimenFrame, { aspectRatio: specimen.ratio }]}>
+                <Image
+                  source={specimen.source}
+                  style={styles.specimenImage}
+                  resizeMode="contain"
+                  accessibilityLabel={`Specimen Pakistani CNIC, ${specimen.label}`}
+                />
+              </View>
+              <Text style={styles.specimenLabel}>{specimen.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.specimenCaveat}>
+          <Ionicons name="information-circle-outline" size={13} color={colors.civic700} />
+          <Text style={styles.specimenCaveatText}>
+            A specimen card, shown as a guide. Your own photograph replaces it once you scan.
+          </Text>
+        </View>
+
+        <View style={styles.tipsList}>
+          {CNIC_TIPS.map((tip) => (
+            <View key={tip.text} style={styles.tipRow}>
+              <View style={styles.tipIcon}>
+                <Ionicons name={tip.icon} size={14} color={colors.civic700} />
+              </View>
+              <Text style={styles.tipText}>{tip.text}</Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
       {canRetryReading ? (
         <Pressable
           accessibilityRole="button"
@@ -416,6 +488,74 @@ export default function IdentityScreen() {
 }
 
 const styles = StyleSheet.create({
+  reference: {
+    marginBottom: spacing.lg,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    backgroundColor: colors.civic50,
+    borderWidth: 1,
+    borderColor: colors.civic200,
+  },
+  referenceEyebrow: {
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+    color: colors.civic700,
+  },
+
+  // Stacked, not side by side — at a phone's width, two cards side by side
+  // would each be too narrow to read as a card at all. Each one is still
+  // shown at its own full horizontal shape, just one above the other.
+  specimenRow: { marginTop: spacing.md, gap: spacing.md },
+  specimenBlock: {},
+  specimenFrame: {
+    width: "100%",
+    borderRadius: radius.md,
+    overflow: "hidden",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+  },
+  specimenImage: { width: "100%", height: "100%" },
+  specimenLabel: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: "600",
+    color: colors.ink,
+    textAlign: "center",
+  },
+
+  specimenCaveat: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: spacing.md,
+  },
+  specimenCaveatText: {
+    flex: 1,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: "rgba(0,90,66,0.75)",
+  },
+
+  tipsList: {
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.civic200,
+    gap: spacing.sm,
+  },
+  tipRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  tipIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tipText: { flex: 1, fontSize: 12.5, lineHeight: 18, color: colors.ink },
+
   scanCard: {
     flexDirection: "row",
     alignItems: "center",

@@ -16,22 +16,9 @@ import { useSession } from "@/context/session";
 import type { ClarificationThread, TrackedReport, TrackingSummary } from "@/api/types";
 import { StatusProgress } from "@/civic/status-progress";
 import { Empty, ErrorNote, Loading } from "@/components/ui";
-import { colors, formatDate, radius, spacing } from "@/theme";
+import { colors, formatDate, radius, spacing, STAT_TONES } from "@/theme";
 
 const dashboardHeroImage = require("../../assets/images/dashboard-hero.webp");
-
-/*
- * Icon + soft tint per figure, matching the web dashboard's `StatCard tone`
- * system exactly — the same four colours, because a citizen who checks a
- * report's status on the phone and then on the laptop should recognise the
- * red/amber/green at a glance rather than re-learn it.
- */
-const STAT_TONES = {
-  neutral: { icon: "document-text-outline", bg: colors.civic50, fg: colors.civic700 },
-  danger: { icon: "alert-circle-outline", bg: "#fdf1f3", fg: "#a81d33" },
-  warning: { icon: "time-outline", bg: "#fdf6ea", fg: "#c2790a" },
-  success: { icon: "checkmark-circle-outline", bg: "#eefaf5", fg: "#0b8f6a" },
-} as const;
 
 interface TrackingPayload {
   summary: TrackingSummary;

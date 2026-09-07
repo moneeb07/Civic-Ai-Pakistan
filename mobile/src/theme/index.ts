@@ -35,6 +35,23 @@ export const colors = {
 export const radius = { sm: 10, md: 14, lg: 18, pill: 999 } as const;
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 } as const;
 
+/*
+ * Icon + soft tint per figure — the web dashboard's `StatCard tone` system,
+ * one definition shared by every screen that shows the citizen's own report
+ * counts (the Home dashboard and the My Reports list). It used to be defined
+ * separately on the Home screen; a second screen needing the exact same four
+ * colours is what actually justifies moving it here rather than copying it
+ * again. The point of it is recognition: a citizen who checks a report's
+ * status on the phone and then on the laptop should see the same red/amber/
+ * green, not re-learn a second palette.
+ */
+export const STAT_TONES = {
+  neutral: { icon: "document-text-outline", bg: colors.civic50, fg: colors.civic700 },
+  danger: { icon: "alert-circle-outline", bg: "#fdf1f3", fg: "#a81d33" },
+  warning: { icon: "time-outline", bg: "#fdf6ea", fg: "#c2790a" },
+  success: { icon: "checkmark-circle-outline", bg: "#eefaf5", fg: "#0b8f6a" },
+} as const;
+
 /** Matches the web app: Pakistan Standard Time, so both show the same clock. */
 export function formatDateTime(value: string): string {
   return new Date(value).toLocaleString("en-GB", {
