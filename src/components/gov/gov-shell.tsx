@@ -3,7 +3,9 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
+import { GovMobileMenu } from "@/components/gov/gov-mobile-menu";
 import { GovNav } from "@/components/gov/gov-nav";
+import { GovSignOut } from "@/components/gov/gov-sign-out";
 import { NotificationBell } from "@/components/gov/notification-bell";
 import { Avatar } from "@/components/ui/avatar";
 import { getDictionary } from "@/lib/i18n";
@@ -49,22 +51,27 @@ export function GovShell({
         <GovNav role={officer.role} />
 
         {/* The officer's own scope, pinned to the foot so "who am I acting as"
-            is always answerable without opening a menu. */}
-        <div className="mt-auto flex items-center gap-2.5 rounded-[12px] bg-white/[0.06] px-3 py-2.5">
-          <Avatar name={officer.name} size="sm" />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[0.75rem] font-semibold text-white">
-              {officer.name}
+            is always answerable without opening a menu — and, below it, the
+            one door out of this whole portal. */}
+        <div className="mt-auto">
+          <div className="flex items-center gap-2.5 rounded-[12px] bg-white/[0.06] px-3 py-2.5">
+            <Avatar name={officer.name} size="sm" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[0.75rem] font-semibold text-white">
+                {officer.name}
+              </span>
+              <span className="block truncate text-[0.6875rem] text-white/50">
+                {t.gov.roles[officer.role]}
+              </span>
             </span>
-            <span className="block truncate text-[0.6875rem] text-white/50">
-              {t.gov.roles[officer.role]}
-            </span>
-          </span>
+          </div>
+
+          <GovSignOut />
         </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b border-line bg-surface/95 backdrop-blur">
+        <header className="sticky top-0 z-30 border-b border-line bg-surface/95 backdrop-blur relative">
           <div className="flex w-full items-center gap-3 px-5 py-3 sm:px-7">
             {backHref ? (
               <Link
@@ -100,9 +107,7 @@ export function GovShell({
                 </span>
               </span>
 
-              <span className="lg:hidden">
-                <Avatar name={officer.name} size="md" />
-              </span>
+              <GovMobileMenu officer={officer} />
             </div>
           </div>
         </header>

@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-09-07T08:05:53.643Z",
+  "generatedAt": "2026-09-07T18:16:40.466Z",
   "root": "CivicAI Pakistan",
   "counts": {
-    "files": 296,
+    "files": 299,
     "routes": 49,
     "tables": 27,
-    "envVars": 19
+    "envVars": 23
   },
   "stages": [
     {
@@ -1094,7 +1094,7 @@
       "path": "src/app/api/profile/image/route.ts",
       "layer": "api",
       "kind": "api-route",
-      "lines": 40,
+      "lines": 34,
       "exports": [
         "runtime",
         "dynamic",
@@ -1110,7 +1110,6 @@
       "apiCalls": [],
       "tablesUsed": [],
       "packages": [
-        "node:fs",
         "next"
       ],
       "calledBy": [
@@ -1249,7 +1248,7 @@
       "path": "src/app/api/reports/[id]/analyze-image/route.ts",
       "layer": "api",
       "kind": "api-route",
-      "lines": 88,
+      "lines": 86,
       "exports": [
         "runtime",
         "dynamic",
@@ -1266,7 +1265,6 @@
       "apiCalls": [],
       "tablesUsed": [],
       "packages": [
-        "node:fs",
         "next"
       ],
       "calledBy": [
@@ -1333,7 +1331,7 @@
       "path": "src/app/api/reports/[id]/image/route.ts",
       "layer": "api",
       "kind": "api-route",
-      "lines": 120,
+      "lines": 114,
       "exports": [
         "runtime",
         "dynamic",
@@ -1350,7 +1348,6 @@
       "apiCalls": [],
       "tablesUsed": [],
       "packages": [
-        "node:fs",
         "next"
       ],
       "calledBy": [
@@ -3395,12 +3392,43 @@
       "calledBy": [],
       "summary": null
     },
+    "src/components/gov/gov-mobile-menu.tsx": {
+      "path": "src/components/gov/gov-mobile-menu.tsx",
+      "layer": "gov",
+      "kind": "component",
+      "lines": 122,
+      "exports": [
+        "GovMobileMenu"
+      ],
+      "imports": [
+        "src/components/ui/avatar.tsx",
+        "src/lib/auth-client.ts",
+        "src/lib/utils.ts",
+        "src/components/gov/gov-nav.tsx",
+        "src/lib/gov/schema.ts"
+      ],
+      "importedBy": [
+        "src/components/gov/gov-shell.tsx"
+      ],
+      "envVars": [],
+      "apiCalls": [],
+      "tablesUsed": [],
+      "packages": [
+        "react",
+        "next",
+        "lucide-react"
+      ],
+      "calledBy": [],
+      "summary": null
+    },
     "src/components/gov/gov-nav.tsx": {
       "path": "src/components/gov/gov-nav.tsx",
       "layer": "gov",
       "kind": "component",
-      "lines": 108,
+      "lines": 123,
       "exports": [
+        "NavItem",
+        "NAV_ITEMS",
         "GovNav"
       ],
       "imports": [
@@ -3408,6 +3436,7 @@
         "src/lib/gov/schema.ts"
       ],
       "importedBy": [
+        "src/components/gov/gov-mobile-menu.tsx",
         "src/components/gov/gov-shell.tsx"
       ],
       "envVars": [],
@@ -3424,14 +3453,16 @@
       "path": "src/components/gov/gov-shell.tsx",
       "layer": "gov",
       "kind": "component",
-      "lines": 140,
+      "lines": 145,
       "exports": [
         "GovShell",
         "GovPageHeading"
       ],
       "imports": [
         "src/components/brand/civicai-logo.tsx",
+        "src/components/gov/gov-mobile-menu.tsx",
         "src/components/gov/gov-nav.tsx",
+        "src/components/gov/gov-sign-out.tsx",
         "src/components/gov/notification-bell.tsx",
         "src/components/ui/avatar.tsx",
         "src/lib/i18n/index.ts",
@@ -3449,6 +3480,31 @@
         "src/app/gov/org/page.tsx",
         "src/app/gov/page.tsx",
         "src/app/gov/work/page.tsx"
+      ],
+      "envVars": [],
+      "apiCalls": [],
+      "tablesUsed": [],
+      "packages": [
+        "react",
+        "next",
+        "lucide-react"
+      ],
+      "calledBy": [],
+      "summary": null
+    },
+    "src/components/gov/gov-sign-out.tsx": {
+      "path": "src/components/gov/gov-sign-out.tsx",
+      "layer": "gov",
+      "kind": "component",
+      "lines": 44,
+      "exports": [
+        "GovSignOut"
+      ],
+      "imports": [
+        "src/lib/auth-client.ts"
+      ],
+      "importedBy": [
+        "src/components/gov/gov-shell.tsx"
       ],
       "envVars": [],
       "apiCalls": [],
@@ -4589,6 +4645,7 @@
       "importedBy": [
         "src/app/gov/page.tsx",
         "src/components/dashboard/citizen-shell.tsx",
+        "src/components/gov/gov-mobile-menu.tsx",
         "src/components/gov/gov-shell.tsx",
         "src/components/gov/issue-discussion.tsx"
       ],
@@ -4994,7 +5051,7 @@
       "path": "src/db/clear-stale-lock.ts",
       "layer": "database",
       "kind": "schema",
-      "lines": 51,
+      "lines": 65,
       "exports": [
         "clearStaleLock"
       ],
@@ -5187,6 +5244,8 @@
         "src/app/home/sign-out-button.tsx",
         "src/components/auth/sign-in-form.tsx",
         "src/components/auth/sign-up-form.tsx",
+        "src/components/gov/gov-mobile-menu.tsx",
+        "src/components/gov/gov-sign-out.tsx",
         "src/components/gov/login-form.tsx"
       ],
       "envVars": [
@@ -6638,6 +6697,7 @@
         "src/components/gov/complaint-card.tsx",
         "src/components/gov/dept-manager.tsx",
         "src/components/gov/dept-queue.tsx",
+        "src/components/gov/gov-mobile-menu.tsx",
         "src/components/gov/gov-nav.tsx",
         "src/components/gov/gov-shell.tsx",
         "src/components/gov/invite-accept-form.tsx",
@@ -7071,11 +7131,13 @@
       "exports": [
         "StoredImage",
         "storeProfileImage",
-        "profileImageAbsolutePath",
+        "readProfileImage",
         "deleteProfileImage",
         "mimeTypeForPath"
       ],
-      "imports": [],
+      "imports": [
+        "src/lib/storage.ts"
+      ],
       "importedBy": [
         "src/app/api/profile/image/route.ts",
         "src/app/api/registration/complete/route.ts"
@@ -7084,7 +7146,6 @@
       "apiCalls": [],
       "tablesUsed": [],
       "packages": [
-        "node:fs",
         "node:path",
         "server-only"
       ],
@@ -7450,8 +7511,9 @@
       "path": "src/lib/report-image-utils.ts",
       "layer": "lib",
       "kind": "module",
-      "lines": 61,
+      "lines": 76,
       "exports": [
+        "safeReportKey",
         "reportImageAbsolutePath",
         "mimeTypeForReportPath",
         "sniffImageMimeType",
@@ -7475,16 +7537,18 @@
       "path": "src/lib/report-image.ts",
       "layer": "lib",
       "kind": "module",
-      "lines": 73,
+      "lines": 66,
       "exports": [
         "StoredReportImage",
         "storeReportImage",
+        "readReportImage",
         "deleteReportImage",
         "mimeTypeForReportPath",
         "reportImageAbsolutePath",
         "sniffImageMimeType"
       ],
       "imports": [
+        "src/lib/storage.ts",
         "src/lib/report-image-utils.ts"
       ],
       "importedBy": [
@@ -7495,8 +7559,6 @@
       "apiCalls": [],
       "tablesUsed": [],
       "packages": [
-        "node:fs",
-        "node:path",
         "server-only"
       ],
       "calledBy": [],
@@ -7568,6 +7630,40 @@
       "calledBy": [],
       "summary": null
     },
+    "src/lib/storage.ts": {
+      "path": "src/lib/storage.ts",
+      "layer": "lib",
+      "kind": "module",
+      "lines": 195,
+      "exports": [
+        "PROFILE_BUCKET",
+        "REPORT_BUCKET",
+        "usingRemoteStorage",
+        "writeObject",
+        "readObject",
+        "deleteObject"
+      ],
+      "imports": [],
+      "importedBy": [
+        "src/lib/profile-image.ts",
+        "src/lib/report-image.ts"
+      ],
+      "envVars": [
+        "SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "SUPABASE_SECRET_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY"
+      ],
+      "apiCalls": [],
+      "tablesUsed": [],
+      "packages": [
+        "node:fs",
+        "node:path",
+        "server-only"
+      ],
+      "calledBy": [],
+      "summary": null
+    },
     "src/lib/utils.ts": {
       "path": "src/lib/utils.ts",
       "layer": "lib",
@@ -7592,6 +7688,7 @@
         "src/components/dashboard/citizen-nav.tsx",
         "src/components/gov/complaint-card.tsx",
         "src/components/gov/gov-field.tsx",
+        "src/components/gov/gov-mobile-menu.tsx",
         "src/components/gov/gov-nav.tsx",
         "src/components/gov/issue-clarifications.tsx",
         "src/components/gov/issue-discussion.tsx",
@@ -8883,7 +8980,7 @@
       "path": "tests/report-image.test.ts",
       "layer": "test",
       "kind": "test",
-      "lines": 63,
+      "lines": 105,
       "exports": [],
       "imports": [
         "src/lib/report-image-utils.ts"
@@ -11404,6 +11501,12 @@
       ]
     },
     {
+      "name": "NEXT_PUBLIC_SUPABASE_URL",
+      "usedBy": [
+        "src/lib/storage.ts"
+      ]
+    },
+    {
       "name": "NODE_ENV",
       "usedBy": [
         "src/app/api/cnic/validate/route.ts",
@@ -11418,6 +11521,24 @@
       "name": "OPENAI_BASE_URL",
       "usedBy": [
         "tests/ai-chains.test.ts"
+      ]
+    },
+    {
+      "name": "SUPABASE_SECRET_KEY",
+      "usedBy": [
+        "src/lib/storage.ts"
+      ]
+    },
+    {
+      "name": "SUPABASE_SERVICE_ROLE_KEY",
+      "usedBy": [
+        "src/lib/storage.ts"
+      ]
+    },
+    {
+      "name": "SUPABASE_URL",
+      "usedBy": [
+        "src/lib/storage.ts"
       ]
     },
     {

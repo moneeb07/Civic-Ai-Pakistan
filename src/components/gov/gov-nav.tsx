@@ -27,7 +27,7 @@ import type { OfficerRole } from "@/lib/gov/schema";
  * passed directly to Client Components".
  */
 
-interface NavItem {
+export interface NavItem {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
@@ -35,9 +35,24 @@ interface NavItem {
   roles?: OfficerRole[];
 }
 
-const ITEMS: NavItem[] = [
+/*
+ * Exported so the mobile disclosure (GovShell's `lg:hidden` menu) can list
+ * the SAME sections with the SAME role filtering, rather than a second,
+ * hand-maintained list that quietly drifts from this one the next time a
+ * section is added or restricted.
+ */
+export const NAV_ITEMS: NavItem[] = [
   { href: "/gov", label: "Overview", icon: LayoutDashboard },
-  { href: "/gov/work", label: "Issues", icon: ListChecks },
+  /*
+   * `/gov/work` is a MEMBER'S OWN CASELOAD, not a general issues view — its
+   * own page (`GovWorkPage`) redirects anyone who isn't a member straight
+   * back to their own role's home. Before this restriction, that meant an
+   * org head, department head, or platform admin saw an "Issues" link that
+   * did nothing but bounce them back to Overview the moment they clicked
+   * it — a dead end with no explanation, not a working section. Scoped the
+   * same way "Departments" and "Members" already are below.
+   */
+  { href: "/gov/work", label: "Issues", icon: ListChecks, roles: ["member"] },
   { href: "/gov/intelligence", label: "AI grouping", icon: Sparkles },
   {
     href: "/gov/org",
@@ -70,7 +85,7 @@ export function GovNav({
    * are not trusted with it, which is noise on a screen they use all day —
    * and the server authorises every one of these routes regardless.
    */
-  const visible = ITEMS.filter((item) => !item.roles || item.roles.includes(role));
+  const visible = NAV_ITEMS.filter((item) => !item.roles || item.roles.includes(role));
 
   return (
     <nav aria-label="Sections" className="flex flex-col gap-0.5">
