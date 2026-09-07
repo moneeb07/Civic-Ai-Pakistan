@@ -157,13 +157,26 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
       */}
       <CardOverlay
         aligned
-        hint={error ?? "Press the button when the card is inside the box"}
+        hint={error ?? "تصویر کھینچنے کے لیے نیچے والا بٹن دبائیں"}
         title={side === "front" ? "Front of your CNIC" : "Back of your CNIC"}
       />
 
-      {/* The standing instruction — the whole job of this screen in one line. */}
+      {/*
+        The standing instruction — the whole job of this screen in two lines.
+
+        In Urdu script rather than Roman Urdu, matching the spoken guidance on
+        the web: the citizens this flow is built for read Urdu, and a
+        transliteration serves neither them nor a speech engine. The English
+        line stays underneath because the app's own chrome is English and a
+        screen with no English at all is a harder jump than it looks.
+      */}
       <View style={[styles.instruction, { top: insets.top + spacing.xl * 2 }]}>
-        <Text style={styles.instructionText}>Fit your CNIC inside the box</Text>
+        <Text style={styles.instructionText}>
+          اپنا شناختی کارڈ باکس کے اندر رکھیں، پھر تصویر کھینچنے کے لیے بٹن دبائیں
+        </Text>
+        <Text style={styles.instructionSub}>
+          Fit your CNIC inside the box, then press the button
+        </Text>
       </View>
 
       {/* The shutter. The only thing that decides when a photograph is taken. */}
@@ -229,8 +242,21 @@ const styles = StyleSheet.create({
   },
   instructionText: {
     color: colors.white,
-    fontSize: 16,
+    fontSize: 17,
+    lineHeight: 27,
     fontWeight: "700",
+    textAlign: "center",
+    // Urdu is right-to-left; without this the line renders in the wrong order
+    // on a device whose system language is English.
+    writingDirection: "rtl",
+    textShadowColor: "rgba(0,0,0,0.6)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  instructionSub: {
+    marginTop: spacing.xs,
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 13,
     textAlign: "center",
     textShadowColor: "rgba(0,0,0,0.6)",
     textShadowOffset: { width: 0, height: 1 },

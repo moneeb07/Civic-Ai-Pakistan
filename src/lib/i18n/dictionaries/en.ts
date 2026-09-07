@@ -152,7 +152,13 @@ export const en = {
       "You can enter your CNIC details by hand instead — you won't need to keep retrying the camera.",
     troubleScanningAction: "Enter details manually",
     dismissAndKeepTrying: "Keep trying to scan",
-    frameLabel: "Place your CNIC inside the frame",
+    /*
+     * The drop-zone captions. They said "Place your CNIC inside the frame"
+     * — camera language, on a screen that has no camera and no frame. The
+     * spoken guidance asks for an upload; these now ask for the same thing,
+     * so the voice and the screen are not describing two different actions.
+     */
+    frameLabel: "Upload the front of your CNIC",
     guidance: {
       heading: "For the best result",
       flat: "Place the CNIC on a flat surface",
@@ -181,7 +187,7 @@ export const en = {
     backTitle: "Now scan the back",
     backSubtitle:
       "The back of your CNIC has your address. This lets us fill that in for you too.",
-    frameLabelBack: "Place the back of your CNIC inside the frame",
+    frameLabelBack: "Upload the back of your CNIC",
     skipBack: "Skip — I'll enter my address manually",
     frontCaptured: "Front captured",
 
@@ -670,41 +676,41 @@ export const en = {
    * Nothing here ever mentions, requests or repeats a password.
    */
   voice: {
-    identity:
-      "Apna CNIC card camera ke samne rakhein. Card ko seedha aur poora frame ke andar rakhein.",
-    identityBack:
-      "Ab apna CNIC card ulta karein aur peechay wala hissa camera ke samne rakhein. Is taraf aap ka pata likha hota hai.",
-    processing: "CivicAI aap ka CNIC parh raha hai. Thora intezar karein.",
-    review:
-      "Yeh maloomat aap ke CNIC se li gayi hai. Meharbani kar ke ise dhyan se check karein.",
-    contact: "Ab apna mobile number aur email address enter karein.",
-    security:
-      "Password aap ko khud enter karna hoga. Main aap ko strong password banane ka tareeqa bata sakta hoon, lekin main aap ka password kabhi nahi sunta.",
-    address: "Ab apna sheher aur ghar ka pata enter karein.",
-    photo: "Ab apni profile tasveer add karein. Camera kholne ke liye Take Photo par press karein.",
-    confirm:
-      "Main ne aap ki maloomat dikha di hai. Kya aap account banana chahte hain?",
-    success: "Aap ka account ban gaya hai. CivicAI mein khush aamdeed.",
-
     /*
-     * Spoken only on a real change of state, and only while voice guidance is
-     * switched on — never a running commentary. Nothing here contains a value
-     * read off the card: the assistant guides the camera, it does not read a
-     * citizen's CNIC number, name or address out loud.
+     * WRITTEN IN URDU SCRIPT, NOT ROMAN URDU.
+     *
+     * These were Roman Urdu — "Apna CNIC card camera ke samne rakhein" — and
+     * that is a transliteration, not a language any speech engine knows.
+     * Handed those letters, both the browser's synthesiser and the server's
+     * voice read what is literally there: English. The result was a mangled
+     * half-English approximation that an Urdu speaker had to decode rather
+     * than simply hear.
+     *
+     * In Urdu script the same sentence is unambiguous to a synthesiser, and
+     * it is also what an Urdu-speaking citizen would read if any of these
+     * ever surface as text. Formal register throughout — "کریں", never the
+     * familiar "کرو" — because this is a government service addressing a
+     * citizen it has never met.
+     *
+     * The capture block that used to sit here is gone with the frame
+     * detector that drove it: glare, tilt and distance corrections describe
+     * checks that no longer run.
      */
-    capture: {
-      searching: "Apna CNIC frame ke andar rakhein.",
-      too_far: "CNIC ko thora qareeb karein.",
-      too_close: "CNIC ko thora door karein.",
-      incomplete: "Poora CNIC frame ke andar rakhein.",
-      tilted: "CNIC ko seedha rakhein.",
-      blurry: "Mobile ko seedha aur sakoon se pakrein.",
-      low_light: "Roshni kam hai. Zyada roshan jagah par jayein.",
-      glare: "Chamak zyada hai. CNIC ka rukh thora badlein.",
-      no_card: "Apna CNIC frame ke andar rakhein.",
-      unreadable: "CNIC saaf nahi parha ja raha. Position aur roshni theek karein.",
-      ready: "CNIC readable hai. Ab tasveer li ja rahi hai.",
-    },
+    identity:
+      "براہِ کرم اپنے شناختی کارڈ کا سامنے والا رخ اپ لوڈ کریں۔ یہی وہ رخ ہے جس پر آپ کی تصویر اور شناختی نمبر درج ہوتا ہے۔",
+    identityBack:
+      "اب براہِ کرم اپنے شناختی کارڈ کا پچھلا رخ اپ لوڈ کریں۔ اسی رخ پر آپ کا پتہ درج ہوتا ہے۔",
+    processing: "سِوک اے آئی آپ کا شناختی کارڈ پڑھ رہا ہے۔ براہِ کرم تھوڑا انتظار کریں۔",
+    review:
+      "یہ معلومات آپ کے شناختی کارڈ سے لی گئی ہیں۔ براہِ کرم انہیں غور سے دیکھ لیں، اور اگر کوئی بات درست نہ ہو تو خود درست کر لیں۔",
+    contact: "اب براہِ کرم اپنا موبائل نمبر اور ای میل ایڈریس درج کریں۔",
+    security:
+      "پاس ورڈ آپ کو خود درج کرنا ہوگا۔ میں آپ کو مضبوط پاس ورڈ بنانے کا طریقہ بتا سکتا ہوں، لیکن آپ کا پاس ورڈ کبھی نہیں سنتا۔",
+    address: "اب براہِ کرم اپنا شہر اور گھر کا پتہ درج کریں۔",
+    photo:
+      "اب براہِ کرم اپنی پروفائل تصویر شامل کریں۔ کیمرہ کھولنے کے لیے تصویر لیں کا بٹن دبائیں۔",
+    confirm: "میں نے آپ کی تمام معلومات دکھا دی ہیں۔ کیا آپ اکاؤنٹ بنانا چاہتے ہیں؟",
+    success: "آپ کا اکاؤنٹ بن گیا ہے۔ سِوک اے آئی میں خوش آمدید۔",
   },
 
   /*

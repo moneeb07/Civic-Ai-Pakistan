@@ -88,7 +88,9 @@ export function CardOverlay({
         />
         {/* The camera screen owns the wording for every stage (checking,
             holding still, counting down), so just show whatever it decided. */}
-        <Text style={styles.pillText}>{hint || "Align the card…"}</Text>
+        <Text style={styles.pillText}>
+          {hint || "کارڈ کو باکس کے اندر رکھیں"}
+        </Text>
       </View>
     </View>
   );

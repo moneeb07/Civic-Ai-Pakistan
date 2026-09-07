@@ -177,12 +177,22 @@ function ManualCapture({
         <Ionicons name="card-outline" size={30} color={colors.civic200} />
       </View>
 
+      {/*
+        Urdu first, English underneath — the same order the guided viewfinder
+        uses, so a citizen who lands on this fallback is not suddenly reading a
+        different app.
+      */}
+      <Text style={styles.manualTitleUr}>
+        {side === "front"
+          ? "اپنے شناختی کارڈ کے سامنے والے رخ کی تصویر کھینچیں"
+          : "اب اپنے شناختی کارڈ کے پچھلے رخ کی تصویر کھینچیں"}
+      </Text>
       <Text style={styles.manualTitle}>
         {side === "front" ? "Photograph the FRONT of your CNIC" : "Now the BACK of your CNIC"}
       </Text>
       <Text style={styles.manualBody}>
         {side === "front"
-          ? "The side with your photograph and CNIC number. Lay the card flat, fill the frame, and avoid glare."
+          ? "The side with your photograph and CNIC number."
           : "The side with your address. This is what fills in your address automatically."}
       </Text>
 
@@ -195,7 +205,7 @@ function ManualCapture({
         style={({ pressed }) => [styles.primary, pressed && styles.pressed]}
       >
         <Ionicons name="camera" size={18} color={colors.civic900} />
-        <Text style={styles.primaryText}>{busy ? "Opening…" : "Open camera"}</Text>
+        <Text style={styles.primaryText}>{busy ? "Opening…" : "تصویر کھینچیں · Open camera"}</Text>
       </Pressable>
 
       <Pressable
@@ -243,10 +253,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: spacing.lg,
   },
-  manualTitle: {
+  manualTitleUr: {
     fontSize: 19,
+    lineHeight: 30,
     fontWeight: "700",
     color: colors.white,
+    textAlign: "center",
+    writingDirection: "rtl",
+  },
+  manualTitle: {
+    marginTop: spacing.sm,
+    fontSize: 15,
+    fontWeight: "600",
+    color: "rgba(255,255,255,0.8)",
     textAlign: "center",
   },
   manualBody: {
