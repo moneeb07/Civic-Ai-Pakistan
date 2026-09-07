@@ -34,7 +34,6 @@ import {
   type QualitySignals,
   type ValidationState,
 } from "@/lib/cnic/validation";
-import { cn } from "@/lib/utils";
 
 const t = getDictionary();
 
@@ -237,7 +236,6 @@ export function CnicCapture({
    * "Scan CNIC" is ambiguous at the exact moment it matters — the citizen is
    * holding a two-sided card and has to know which face to present.
    */
-  const scanLabel = side === "front" ? t.identity.scanFront : t.identity.scanBack;
   const uploadLabel = side === "front" ? t.identity.uploadFront : t.identity.uploadBack;
 
   const { enabled: voiceEnabled, setEnabled: setVoiceEnabled } = useAssistedMode();
@@ -365,6 +363,18 @@ export function CnicCapture({
   // Release the camera if the citizen navigates away mid-capture.
   React.useEffect(() => stopCamera, [stopCamera]);
 
+  /**
+   * Starts the live scanner. Currently UNREACHABLE — the web flow is
+   * upload-only, so nothing calls this any more.
+   *
+   * Kept, with the viewfinder and detection loop it drives, because deleting
+   * them touches ~400 lines across this file and the value is tidiness rather
+   * than behaviour. If the scanner is not brought back, remove this function,
+   * the `cameraState === "live"` branch, the detection effect and
+   * FrameDebugPanel together — piecemeal removal leaves orphans that do not
+   * type-check.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function startCamera() {
     setError(null);
 
@@ -1045,7 +1055,10 @@ export function CnicCapture({
                 // screen — a retake is a continuation, not a restart.
                 setPreview(null);
                 setVerdict(null);
-                void startCamera();
+                // The picker, not the viewfinder: with the scanner no longer
+                // offered, reopening it would drop the citizen on a screen
+                // they cannot get a second photograph from.
+                fileInputRef.current?.click();
               }}
               disabled={disabled}
             >
@@ -1336,28 +1349,32 @@ export function CnicCapture({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2.5 sm:flex-row">
-        <Button
-          size="full"
-          onClick={startCamera}
-          disabled={disabled || busy}
-          className={cn(cameraState === "denied" && "hidden sm:inline-flex")}
-        >
-          <Camera className="size-4" aria-hidden="true" />
-          {scanLabel}
-        </Button>
+      {/*
+        Upload only, on the web.
 
-        <Button
-          variant="secondary"
-          size="full"
-          onClick={() => fileInputRef.current?.click()}
-          loading={busy}
-          disabled={disabled}
-        >
-          {!busy ? <ImageUp className="size-4" aria-hidden="true" /> : null}
-          {uploadLabel}
-        </Button>
-      </div>
+        The live scanner is no longer offered here. On a desktop it was the
+        wrong tool: a laptop webcam points at the person, not at a document
+        held flat, and the few that can be angled at a card rarely resolve the
+        small print well enough to be sure of a digit. Citizens photograph the
+        card on their phone and upload it — the path that actually produced
+        readable images — so that is the path the button offers.
+
+        `capture="environment"` on the hidden input still lets a PHONE browser
+        open its rear camera from this same button, so the camera is kept
+        exactly where it works and dropped where it did not.
+
+        The scanner machinery below is left in place but unreachable; removing
+        it is a tidy-up for a calmer day than a deadline.
+      */}
+      <Button
+        size="full"
+        onClick={() => fileInputRef.current?.click()}
+        loading={busy}
+        disabled={disabled}
+      >
+        {!busy ? <ImageUp className="size-4" aria-hidden="true" /> : null}
+        {uploadLabel}
+      </Button>
 
     </div>
   );

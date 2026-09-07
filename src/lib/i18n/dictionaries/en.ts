@@ -329,6 +329,14 @@ export const en = {
      * fields were held back. Those boxes are blank on purpose — an empty field
      * the citizen fills in is correct; a confident-looking wrong one is not.
      */
+    /*
+     * Replaces the old "we left these blank" message. The reader no longer
+     * withholds anything — it shows what it read and asks for a look, because
+     * a citizen holding the card can settle in two seconds what a confidence
+     * score can only guess at.
+     */
+    checkTheseFields:
+      "Please check the highlighted details against your card — the scan wasn't fully sure about them. You can edit anything below.",
     withheldFields:
       "Some fields could not be read with certainty, so they were left blank rather than guessed. Please fill them in.",
     /*

@@ -227,7 +227,14 @@ export function IdentityFlow() {
 
   const [fields, setFields] = React.useState<IdentityFields>(EMPTY);
   const [extracted, setExtracted] = React.useState<string[]>([]);
-  const [withheld, setWithheld] = React.useState<string[]>([]);
+  /*
+   * Fields the reader hedged on. They are SHOWN and editable — the marker asks
+   * the citizen to check them against the card, which is a check a person with
+   * the card in hand does better than a confidence score does.
+   */
+  const [unsure, setUnsure] = React.useState<string[]>([]);
+  /** The reader's own sentence about the photograph, when it had one. */
+  const [advisory, setAdvisory] = React.useState<string | null>(null);
   const [backScanned, setBackScanned] = React.useState(false);
   /*
    * What became of the address on the last passing scan. Null before any scan.
@@ -317,7 +324,8 @@ export function IdentityFlow() {
 
           setFields(EMPTY);
           setExtracted([]);
-          setWithheld([]);
+          setUnsure([]);
+          setAdvisory(null);
           setBackScanned(false);
           setAddressOutcome(null);
           setPresentAddress(null);
@@ -375,7 +383,8 @@ export function IdentityFlow() {
         nationality: data.nationality ?? "",
       });
       setExtracted(data.extractedFields ?? []);
-      setWithheld(data.withheldFields ?? []);
+      setUnsure(data.unsureFields ?? []);
+      setAdvisory(typeof data.advisory === "string" ? data.advisory : null);
       setBackScanned(Boolean(data.backScanned));
       setPresentAddress(data.presentAddress ?? null);
       setPermanentAddress(data.permanentAddress ?? null);
@@ -583,15 +592,28 @@ export function IdentityFlow() {
               it back to the camera — so what is left to say is the narrower
               thing: individual fields were held back and are blank on purpose.
             */}
-            {withheld.length > 0 ? (
+            {unsure.length > 0 || advisory ? (
               <div
                 role="alert"
                 className="flex items-start gap-2.5 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3.5"
               >
                 <CircleAlert className="mt-0.5 size-4 shrink-0 text-amber-700" aria-hidden="true" />
-                <p className="text-[0.8125rem] leading-relaxed text-amber-900">
-                  {t.extraction.withheldFields}
-                </p>
+                <div>
+                  <p className="text-[0.8125rem] font-semibold text-amber-900">
+                    {t.extraction.checkTheseFields}
+                  </p>
+                  {/*
+                    The reader's own words about the photograph, when it had
+                    something specific to say. More useful than a generic
+                    "please check" — "the card was blurred" tells a citizen
+                    whether to squint at the screen or take a better photo.
+                  */}
+                  {advisory ? (
+                    <p className="mt-1 text-[0.8125rem] leading-relaxed text-amber-900/80">
+                      {advisory}
+                    </p>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 
@@ -784,7 +806,8 @@ export function IdentityFlow() {
               backBlobRef.current = null;
               setRetakeTarget(null);
               setError(null);
-              setWithheld([]);
+              setUnsure([]);
+          setAdvisory(null);
               setBackScanned(false);
               setAddressOutcome(null);
               setPresentAddress(null);

@@ -16,26 +16,34 @@ import { Button } from "@/components/ui";
 import { colors, spacing } from "@/theme";
 
 /*
- * Auto-capture for the CNIC, ported from the reference project.
+ * The CNIC camera: a guided viewfinder with a MANUAL shutter.
  *
- * Capture runs in two stages, so the shutter never fires at something that
- * merely happens to be in front of the lens:
+ * It used to fire by itself once the card looked aligned and still for three
+ * seconds. That is gone, and the reason is worth recording, because the
+ * machinery it drove is still here.
  *
- *   Stage 1 — is a card actually there? A run of consecutive positive,
- *             still frames has to agree before we commit to anything, so a
- *             single lucky frame can't start the countdown.
- *   Stage 2 — a visible 3-2-1 countdown, which only advances while the card
- *             stays aligned and still. Lose either and it resets to stage 1.
+ * Auto-capture decides FOR the citizen, at the one moment they most need the
+ * decision: they are still squaring up the card, the detector calls it good,
+ * and the photograph is taken. There was no way to say "not yet" — and no way
+ * to say "yes, now" either, so someone whose card the detector could not read
+ * (dark room, patterned table, a laminated card throwing glare) was left
+ * pointing a camera that would never fire. Both failures produced the same
+ * thing: a retake.
  *
- * All of it runs on-device. No frame is uploaded to decide when to press the
- * shutter — only the single photograph the citizen ends up accepting is sent
- * anywhere, and that goes to CivicAI's own extraction endpoint.
+ * So the detector stays and keeps advising — the box turns green, the hint
+ * says what is wrong — but pressing the shutter is the citizen's. The button
+ * is never disabled, deliberately: the detector is a guide, not an authority,
+ * and it is wrong often enough that gating on it would strand people holding
+ * a perfectly readable card.
+ *
+ * All of the detection runs on-device. No frame is uploaded to decide anything
+ * — only the single photograph the citizen chooses to take is sent, and that
+ * goes to CivicAI's own extraction endpoint.
  */
 
 // Loosened alongside detect-card.ts's thresholds — see the note there. Two
 // confirming frames commits to the countdown a beat sooner than three.
 const CARD_PRESENT_FRAMES = 2;
-const COUNTDOWN_MS = 3000;
 
 // Max average per-sample brightness change between frames still considered
 // "held still". While the card is being moved into place this runs high, and
@@ -89,13 +97,11 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
 
   const [aligned, setAligned] = React.useState(false);
   const [hint, setHint] = React.useState("Align the card…");
-  const [countdown, setCountdown] = React.useState(0);
   const [busy, setBusy] = React.useState(false);
   const [denied, setDenied] = React.useState(false);
 
   const presentCount = React.useRef(0); // consecutive frames a card has been seen
   const missCount = React.useRef(0); // consecutive bad frames, for the grace period
-  const countdownStart = React.useRef<number | null>(null);
   const lockRef = React.useRef(false); // prevents re-entrant captures
   const prevSig = React.useRef<number[] | null>(null);
 
@@ -154,12 +160,10 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
        */
       if (!res.aligned || !steady) {
         missCount.current += 1;
-        const hasProgress = countdownStart.current != null || presentCount.current > 0;
+        const hasProgress = presentCount.current > 0;
         if (hasProgress && missCount.current <= GRACE_FRAMES) return;
 
         presentCount.current = 0;
-        countdownStart.current = null;
-        setCountdown(0);
 
         if (res.aligned) {
           // Card is there, just genuinely unsettled for longer than the grace
@@ -195,21 +199,22 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
         return;
       }
 
-      // ---- Stage 2: card confirmed and held still — run the countdown. ----
-      if (countdownStart.current == null) countdownStart.current = Date.now();
-      const remaining = COUNTDOWN_MS - (Date.now() - countdownStart.current);
-
-      if (remaining <= 0) {
-        setCountdown(0);
-        setHint("Capturing…");
-        void doCapture();
-        return;
-      }
-
-      setCountdown(Math.ceil(remaining / 1000));
-      setHint("Hold steady…");
+      /* ---- Stage 2: card confirmed. The citizen presses the shutter. ----
+       *
+       * This used to run a countdown and fire the shutter itself. It was
+       * removed because it took the decision away at exactly the wrong moment:
+       * the camera would commit to a frame while someone was still adjusting
+       * the card, and there was no way to say "wait". Worse, it fired on
+       * ITS OWN judgement of alignment — so a citizen who could see the photo
+       * was going to be bad had to watch it happen anyway, then retake.
+       *
+       * The detector still runs, and everything it learned is still used: the
+       * box turns green and the hint says the card is ready. It just advises
+       * now instead of deciding. The shutter is a button.
+       */
+      setHint("Looks good — press the button");
     },
-    [doCapture],
+    [],
   );
 
   const frameProcessor = useFrameProcessor(
@@ -264,9 +269,46 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
       <CardOverlay
         aligned={aligned}
         hint={hint}
-        countdown={countdown}
         title={side === "front" ? "Front of your CNIC" : "Back of your CNIC"}
       />
+      {/*
+        The standing instruction, above everything.
+
+        Deliberately separate from the live hint below the box: that one
+        changes constantly as the detector reacts, and a message that moves is
+        a message nobody reads. This one never changes, so it can be relied on
+        — it is the whole job of this screen in one line.
+      */}
+      <View style={[styles.instruction, { top: insets.top + spacing.xl * 2 }]}>
+        <Text style={styles.instructionText}>Fit your CNIC inside the box</Text>
+      </View>
+
+      {/*
+        The shutter. Always enabled, even when the detector is unhappy.
+
+        Refusing to take the photograph would reintroduce the problem this
+        change exists to fix: the detector is a guide, not an authority, and it
+        is wrong often enough — poor light, a plain background it reads as no
+        card — that locking the button would strand someone with a perfectly
+        readable card and no way to proceed. The green box tells them when it
+        thinks the shot is good; pressing anyway is their call.
+      */}
+      <View style={[styles.shutterBar, { paddingBottom: insets.bottom + spacing.lg }]}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Capture the ${side} of your CNIC`}
+          onPress={() => void doCapture()}
+          disabled={busy}
+          style={({ pressed }) => [
+            styles.shutter,
+            aligned && styles.shutterReady,
+            (pressed || busy) && { opacity: 0.6 },
+          ]}
+        >
+          <View style={[styles.shutterInner, aligned && styles.shutterInnerReady]} />
+        </Pressable>
+      </View>
+
       {onCancel ? (
         <Pressable
           accessibilityRole="button"
@@ -304,6 +346,47 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.35)",
   },
+  instruction: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    paddingHorizontal: spacing.xl,
+  },
+  instructionText: {
+    color: colors.white,
+    fontSize: 16,
+    fontWeight: "700",
+    textAlign: "center",
+    textShadowColor: "rgba(0,0,0,0.6)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
+  },
+  shutterBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+  },
+  shutter: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 4,
+    borderColor: "rgba(255,255,255,0.85)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // Green once the detector is happy: an invitation, never a gate.
+  shutterReady: { borderColor: colors.civic500 },
+  shutterInner: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: colors.white,
+  },
+  shutterInnerReady: { backgroundColor: colors.civic500 },
   close: {
     position: "absolute",
     left: spacing.md,

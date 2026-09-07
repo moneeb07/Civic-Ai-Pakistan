@@ -7,6 +7,24 @@ import {
 } from "@/services/ai/cnic-extractor";
 import { formatCnic, isValidCnicFormat, maskCnic } from "@/lib/cnic";
 import { ADDRESS_CONFIDENCE_MIN, type GateFailure } from "@/lib/cnic-confidence";
+
+/**
+ * Every field the reader can return, in the order the form shows them.
+ *
+ * Used when the gate rejected the read outright: there is no per-field verdict
+ * to consult in that case, so everything is marked "check this" rather than
+ * silently presenting a wholesale-doubted read as if it were trusted.
+ */
+const ALL_EXTRACTED_FIELDS = [
+  "fullName",
+  "fatherName",
+  "cnicNumber",
+  "dateOfBirth",
+  "dateOfIssue",
+  "dateOfExpiry",
+  "gender",
+  "nationality",
+] as const;
 import { type SideFailure } from "@/lib/cnic-side-check";
 import { decideExtraction } from "@/lib/cnic-decision";
 import { getOrCreateRegistrationSession } from "@/lib/registration/session";
@@ -178,53 +196,42 @@ export async function POST(request: Request) {
       addressConfidenceMin: ADDRESS_CONFIDENCE_MIN,
     });
 
-    if (decision.kind === "wrong_side") {
-      return NextResponse.json(
-        {
-          success: false,
-          reason: "wrong_side",
-          sideFailure: decision.failure,
-          /*
-           * Only the offending photo is discarded — a good front is never
-           * thrown away because the back was the wrong side. The exception is
-           * a swap, where neither photo is in the right slot and "both" is the
-           * honest answer.
-           */
-          affectedSide: decision.retakeBoth ? "both" : decision.retake,
-          message: SIDE_MESSAGES[decision.failure],
-        },
-        { status: 422 },
-      );
-    }
+    /*
+     * THE GATE IS ADVISORY, NOT BLOCKING.
+     *
+     * It used to return 422 here and send the citizen back to the camera with
+     * nothing: a read the model was unsure about was discarded outright, on
+     * the reasoning that an empty box is safer than a plausible wrong value.
+     *
+     * That reasoning holds only if the citizen never sees the value. They do —
+     * every field on the next screen is editable, and checking their own name
+     * and CNIC number against the card in their hand is something a person is
+     * far better at than a confidence score is. Discarding the read made them
+     * retake a photograph and then type all nine fields by hand, which is
+     * slower AND more error-prone than correcting one wrong digit.
+     *
+     * So the read always comes back now. What the gate decided is reported
+     * alongside it — `unsureFields` drives a "check this" marker on exactly
+     * the fields the model hedged on, and `advisory` carries the human
+     * sentence explaining what went wrong with the photograph. The citizen
+     * decides, with the card in front of them, instead of the score deciding
+     * for them.
+     */
+    const unsureFields =
+      decision.kind === "accepted" ? decision.droppedFields : ALL_EXTRACTED_FIELDS;
 
-    if (decision.kind === "rejected") {
-      return NextResponse.json(
-        {
-          success: false,
-          reason: "low_confidence",
-          gateFailure: decision.failure,
-          /*
-           * Which physical side to retake. "both" means the model condemned
-           * both images and neither photo is worth keeping; "unknown" means it
-           * implicated neither, so the client keeps what it has.
-           */
-          affectedSide: decision.affectedSide,
-          message: GATE_MESSAGES[decision.failure],
-        },
-        { status: 422 },
-      );
-    }
+    const advisory =
+      decision.kind === "wrong_side"
+        ? SIDE_MESSAGES[decision.failure]
+        : decision.kind === "rejected"
+          ? GATE_MESSAGES[decision.failure]
+          : null;
 
     /*
-     * Only fields that cleared the per-field bar survive. A field the model
-     * returned but was unsure about is blanked here — the citizen sees an
-     * empty box to fill in, never a plausible-looking wrong value.
+     * Every value the model read is returned, including the ones it hedged on.
+     * `unsureFields` says which to flag; nothing is blanked.
      */
-    const accepted = new Set(decision.acceptedFields);
-    const keep = <T,>(field: string, value: T): T | null =>
-      accepted.has(field) ? value : null;
-
-    const safeCnic = keep("cnicNumber", cnicNumber);
+    const safeCnic = cnicNumber;
 
     /*
      * The response carries the full CNIC exactly once, because the citizen has
@@ -235,33 +242,45 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       data: {
-        fullName: keep("fullName", extraction.fullName),
-        fatherName: keep("fatherName", extraction.fatherName),
+        fullName: extraction.fullName,
+        fatherName: extraction.fatherName,
         cnicNumber: safeCnic,
         cnicMasked: safeCnic ? maskCnic(safeCnic) : null,
-        dateOfBirth: keep("dateOfBirth", extraction.dateOfBirth),
-        dateOfIssue: keep("dateOfIssue", extraction.dateOfIssue),
-        dateOfExpiry: keep("dateOfExpiry", extraction.dateOfExpiry),
-        gender: keep("gender", extraction.gender),
-        nationality: keep("nationality", extraction.nationality),
+        dateOfBirth: extraction.dateOfBirth,
+        dateOfIssue: extraction.dateOfIssue,
+        dateOfExpiry: extraction.dateOfExpiry,
+        gender: extraction.gender,
+        nationality: extraction.nationality,
         confidence: extraction.confidence,
-        // Which fields actually came off the card AND cleared the bar —
-        // drives the "From CNIC" badges.
-        extractedFields: decision.acceptedFields,
-        /** Fields read but withheld for low confidence, so the UI can say so. */
-        withheldFields: decision.droppedFields,
+        // Which fields came off the card — drives the "From CNIC" badges.
+        extractedFields:
+          decision.kind === "accepted" ? decision.acceptedFields : ALL_EXTRACTED_FIELDS,
+        /** Fields the model hedged on. Shown and editable, but marked "check this". */
+        unsureFields,
+        /** A plain sentence about the photograph, or null when it read cleanly. */
+        advisory,
         // True only when the number is CNIC-shaped. NOT a claim of authenticity.
         cnicFormatChecked: cnicIsValid,
-        presentAddress: decision.presentAddress,
-        permanentAddress: decision.permanentAddress,
+        /*
+         * Only the "accepted" decision reasons about addresses — the reject
+         * paths bail out before that work is done. So the raw read is used
+         * there, on the same principle as every other field: show what the
+         * model saw and let the citizen correct it, rather than blanking an
+         * address because the gate never got round to judging it.
+         */
+        presentAddress:
+          decision.kind === "accepted" ? decision.presentAddress : extraction.presentAddress,
+        permanentAddress:
+          decision.kind === "accepted" ? decision.permanentAddress : extraction.permanentAddress,
         backScanned,
         /*
          * "available" | "partial" | "unreadable" | "not_printed", plus the
          * flag the UI must act on. The citizen is never left with an
          * unexplained blank address.
          */
-        addressOutcome: decision.addressOutcome,
-        addressNeedsManualEntry: decision.addressNeedsManualEntry,
+        addressOutcome: decision.kind === "accepted" ? decision.addressOutcome : "partial",
+        addressNeedsManualEntry:
+          decision.kind === "accepted" ? decision.addressNeedsManualEntry : !backScanned,
       },
     });
   } catch (error) {
