@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { uploadCnic, type UploadFile } from "@/api/client";
 import { CnicCapture } from "@/cnic/capture";
 import { useRegistration, type CnicAddress } from "@/registration/context";
-import { planRetake, type AffectedSide, type CnicSide } from "@/registration/retake";
+import { type CnicSide } from "@/registration/retake";
 import { RegistrationShell, StepHeading, Note } from "@/registration/shell";
 import { colors, radius, spacing } from "@/theme";
 
@@ -61,7 +61,6 @@ interface ExtractData {
   gender?: string | null;
   nationality?: string | null;
   extractedFields?: string[];
-  withheldFields?: string[];
   backScanned?: boolean;
   presentAddress?: CnicAddress | null;
   permanentAddress?: CnicAddress | null;
@@ -157,55 +156,24 @@ export default function IdentityScreen() {
         }
 
         /*
-         * Only "low_confidence" and "wrong_side" carry a real `affectedSide`
-         * — the server read the photo and is telling us specifically which
-         * side to retake. Every other reason (a 503 from Gemini being
-         * overloaded, a dropped connection, our own upload timeout,
-         * "unexpected") has NOTHING to do with either photo: `affectedSide`
-         * is simply absent.
+         * Every remaining failure is a failure to READ the card at all — the
+         * provider was unreachable, or returned nothing usable. None of them
+         * says anything about which photograph to retake, and none of them
+         * ever did reliably: the per-side retake that used to run here was
+         * driven by an accuracy gate that no longer exists, and on a generic
+         * failure it threw away a perfectly good front photo and reopened the
+         * camera for a problem that had nothing to do with the front.
          *
-         * planRetake(undefined, …) still returns a plan — its documented
-         * fallback for "the read doesn't distinguish the two" — and that plan
-         * DISCARDS whichever side isn't being kept. Calling it here on a
-         * generic failure meant a perfectly good front photo was thrown away
-         * and the camera reopened on "front" for a problem that had nothing
-         * to do with the front. Worse, the jump goes straight into a
-         * full-screen camera, which never renders `error` — so this whole
-         * sequence played out with no message visible at all: exactly the
-         * "stuck, then back to front, nothing shown" symptom.
-         *
-         * So the retry-a-specific-side path only runs for the two reasons
-         * where the server actually named a side. Everything else returns to
-         * the intro screen, where the error banner above IS on screen, and
-         * lets the citizen choose to try again themselves — the photos they
-         * already took are left untouched either way.
+         * So the citizen comes back to the intro screen, where the error
+         * banner above IS on screen, with both photographs untouched, and
+         * chooses for themselves whether to try again or type the details in.
          */
-        const gateVerdict = payload.reason === "low_confidence" || payload.reason === "wrong_side";
-
-        if (!gateVerdict) {
-          setPhase("intro");
-          return;
-        }
-
-        // Apply the plan's discards EXACTLY: a verdict of "both unreadable"
-        // that keeps the bad back would re-submit it for ever.
-        const plan = planRetake(payload.affectedSide as AffectedSide | undefined, {
-          front: Boolean(frontRef.current),
-          back: Boolean(backRef.current),
-        });
-
-        for (const side of plan.discards) {
-          if (side === "front") frontRef.current = null;
-          else backRef.current = null;
-        }
-
-        retakeTarget.current = plan.keeps ? plan.retake : null;
-        goToCapture(plan.retake);
+        setPhase("intro");
         return;
       }
 
-      // A read that passed the gate resets the counter — one rough patch is
-      // never held against a citizen who then reads cleanly.
+      // A scan that came back resets the counter — one rough patch is never
+      // held against a citizen whose next attempt reads fine.
       setFailures(0);
 
       const data = payload.data ?? {};
@@ -222,7 +190,7 @@ export default function IdentityScreen() {
       });
       setDraft({
         extracted: data.extractedFields ?? [],
-        withheld: data.withheldFields ?? [],
+        withheld: [],
         backScanned: Boolean(data.backScanned),
         presentAddress: data.presentAddress ?? null,
         permanentAddress: data.permanentAddress ?? null,

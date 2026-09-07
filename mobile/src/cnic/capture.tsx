@@ -9,20 +9,19 @@ import { colors, radius, spacing } from "@/theme";
 /*
  * The CNIC camera the registration flow actually renders.
  *
- * Auto-capture needs Vision Camera's frame processors, which are NATIVE code.
- * They run in a development build and they do not run in Expo Go, which ships
- * a fixed set of native modules. Rather than make the whole signup unreachable
- * in Expo Go — the way the app is being run day to day right now — this picks
- * the best camera actually available:
+ * The guided viewfinder is built on Vision Camera, which is NATIVE code: it
+ * runs in a development build and does not run in Expo Go, which ships a fixed
+ * set of native modules. Rather than make the whole signup unreachable in Expo
+ * Go — the way the app is often run day to day — this picks the best camera
+ * actually available:
  *
- *   development build → the auto-capture viewfinder, which finds the card and
- *                       fires the shutter itself
- *   Expo Go           → the system camera, with the citizen pressing the
- *                       button
+ *   development build → the in-app viewfinder with the CNIC guide box
+ *   Expo Go           → the system camera
  *
- * Both produce the same thing: a JPEG on disk, uploaded to the same endpoint.
- * The difference is only in how the photograph gets taken, so nothing about
- * what a valid registration is depends on which one ran.
+ * The citizen presses the shutter in both. Neither judges the photograph, and
+ * both produce the same thing: a JPEG on disk, uploaded to the same endpoint,
+ * where the model reads it and the citizen checks the result. The only
+ * difference is whether there is a guide box to line the card up against.
  */
 
 /*
@@ -48,13 +47,13 @@ try {
 }
 
 /**
- * Whether auto-capture is available in this build.
+ * Whether the guided viewfinder is available in this build.
  *
  * Exported so a developer bringing the app up can tell a deliberate fallback
- * from a broken install — the two look identical on screen otherwise, which is
+ * from a broken install — the two look similar on screen otherwise, which is
  * exactly the confusion this caused.
  */
-export const autoCaptureAvailable = !loadFailed && AutoCamera != null;
+export const guidedCameraAvailable = !loadFailed && AutoCamera != null;
 
 /*
  * Requiring the module can succeed while RENDERING it still fails, because
@@ -113,11 +112,12 @@ export function CnicCapture({ side, onCaptured, onSkip, onCancel }: CnicCaptureP
 }
 
 /**
- * The system camera, driven by the citizen.
+ * The system camera.
  *
- * Deliberately not dressed up to look like the auto-capture viewfinder: it
- * behaves differently, and pretending otherwise would leave someone waiting
- * for a shutter that is never going to fire on its own.
+ * Reached when the guided viewfinder's native module is not in this build. The
+ * citizen takes the photograph exactly as they would there; what is missing is
+ * only the guide box, so the wording below has to carry the framing advice the
+ * box would otherwise give.
  */
 function ManualCapture({
   side,
@@ -209,8 +209,8 @@ function ManualCapture({
 
       {__DEV__ ? (
         <Text style={styles.devHint}>
-          Auto-capture is unavailable in Expo Go. Run a development build
-          (npx expo run:android) for the guided frame.
+          The guided frame is unavailable in Expo Go. Run a development build
+          (npx expo run:android) to get it.
         </Text>
       ) : null}
 

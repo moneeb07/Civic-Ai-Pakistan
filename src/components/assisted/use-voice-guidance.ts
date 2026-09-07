@@ -122,7 +122,23 @@ export function useSpeech(): VoiceGuidance {
   // Never leave a phrase playing after the citizen navigates away.
   React.useEffect(() => stop, [stop]);
 
-  return { supported, speaking, speak, stop };
+  /*
+   * Memoised, and that is not a performance tweak — it is the whole reason
+   * this hook stopped stuttering.
+   *
+   * Returning a fresh object here gave `speak` a new identity on every render.
+   * useStepAnnouncement lists `speak` in its dependencies, so the effect
+   * re-ran, and `speak` begins by cancelling whatever is currently playing.
+   * Speaking also sets `speaking`, which re-renders, which produced another
+   * new object — a loop that cut the utterance off a fraction of a second in
+   * and immediately restarted it, so "Upload your CNIC" came out as "up up up
+   * up". The object must stay stable across the `speaking` changes that
+   * speaking itself causes.
+   */
+  return React.useMemo(
+    () => ({ supported, speaking, speak, stop }),
+    [supported, speaking, speak, stop],
+  );
 }
 
 /**
@@ -136,15 +152,22 @@ export function useVoiceGuidance(): VoiceGuidance {
   const { enabled } = useAssistedMode();
   const speech = useSpeech();
 
+  /*
+   * Depends on `speech.speak`, never on `speech` itself. The parent object
+   * changes identity whenever `speaking` flips; the speak function does not,
+   * and taking the whole object here would reintroduce the churn the memo
+   * above exists to prevent.
+   */
+  const inner = speech.speak;
   const speak = React.useCallback(
     (phrase: string) => {
       if (!enabled) return;
-      speech.speak(phrase);
+      inner(phrase);
     },
-    [enabled, speech],
+    [enabled, inner],
   );
 
-  return { ...speech, speak };
+  return React.useMemo(() => ({ ...speech, speak }), [speech, speak]);
 }
 
 /** Speaks a step's instruction once when the screen opens. */
@@ -152,11 +175,27 @@ export function useStepAnnouncement(phrase: string) {
   const { enabled } = useAssistedMode();
   const { speak, supported } = useVoiceGuidance();
 
+  /*
+   * `speak` is read through a ref rather than depended on.
+   *
+   * "Once when the screen opens" is a promise about the PHRASE, not about the
+   * speak function, and the two are not the same thing: any future change to
+   * how speaking is wired would otherwise be able to re-trigger the
+   * announcement, which is the class of bug that made this stutter in the
+   * first place. Pinning the dependencies to what the sentence actually
+   * depends on — the phrase, and whether the citizen wants to hear it — makes
+   * that impossible to reintroduce from a distance.
+   */
+  const speakRef = React.useRef(speak);
+  React.useEffect(() => {
+    speakRef.current = speak;
+  }, [speak]);
+
   React.useEffect(() => {
     if (!enabled || !supported) return;
 
     // Small delay so the screen has painted before the voice starts.
-    const timer = window.setTimeout(() => speak(phrase), 350);
+    const timer = window.setTimeout(() => speakRef.current(phrase), 350);
     return () => window.clearTimeout(timer);
-  }, [enabled, supported, phrase, speak]);
+  }, [enabled, supported, phrase]);
 }

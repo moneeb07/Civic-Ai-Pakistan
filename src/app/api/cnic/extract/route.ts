@@ -6,14 +6,46 @@ import {
   isExtractorConfigured,
 } from "@/services/ai/cnic-extractor";
 import { formatCnic, isValidCnicFormat, maskCnic } from "@/lib/cnic";
-import { ADDRESS_CONFIDENCE_MIN, type GateFailure } from "@/lib/cnic-confidence";
+import { getOrCreateRegistrationSession } from "@/lib/registration/session";
+
+/*
+ * POST /api/cnic/extract
+ *
+ * multipart/form-data { front: File, back?: File } -> whatever the model read
+ * off the card.
+ *
+ * WHAT THIS DELIBERATELY NO LONGER DOES.
+ * There used to be a gate here: a confidence score per field, a check on which
+ * side of the card each photo showed, and a set of thresholds that could
+ * reject the read outright and send the citizen back to the camera with
+ * nothing. It is gone, on purpose.
+ *
+ * The gate was second-guessing the model with a cruder instrument than the
+ * model. It could not read the card; it could only read the model's own
+ * hedging about the card, and it turned that hedging into a refusal. A photo
+ * with a little glare on it — which the model reads perfectly well — became
+ * "Picture is not readable", and the citizen was asked to retake a photograph
+ * that had already worked.
+ *
+ * The check that actually matters happens one screen later and always did:
+ * every field is editable, and the citizen has the card in their hand. A
+ * person comparing their own name and number against the physical card is a
+ * far better verifier than any confidence threshold, so the model's reading is
+ * returned in full and they confirm it.
+ *
+ * Images are held in memory for the duration of the request and never written
+ * to disk. Nothing extracted is persisted here — the citizen must review and
+ * confirm it first (see /api/registration/identity).
+ */
+
+const MAX_BYTES = 8 * 1024 * 1024;
+const ACCEPTED = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 /**
  * Every field the reader can return, in the order the form shows them.
  *
- * Used when the gate rejected the read outright: there is no per-field verdict
- * to consult in that case, so everything is marked "check this" rather than
- * silently presenting a wholesale-doubted read as if it were trusted.
+ * Used to mark all of them as having come from the scan — there is no
+ * per-field verdict any more, because there is no longer anything making one.
  */
 const ALL_EXTRACTED_FIELDS = [
   "fullName",
@@ -25,63 +57,10 @@ const ALL_EXTRACTED_FIELDS = [
   "gender",
   "nationality",
 ] as const;
-import { type SideFailure } from "@/lib/cnic-side-check";
-import { decideExtraction } from "@/lib/cnic-decision";
-import { getOrCreateRegistrationSession } from "@/lib/registration/session";
 
-/*
- * POST /api/cnic/extract
- *
- * multipart/form-data { front: File, back?: File } -> structured, validated
- * CNIC fields, including present/permanent address read off the back.
- *
- * Images are held in memory for the duration of the request and never written
- * to disk. Nothing extracted is persisted here — the citizen must review and
- * confirm it first (see /api/registration/identity).
- */
-
-const MAX_BYTES = 8 * 1024 * 1024;
-const ACCEPTED = new Set(["image/jpeg", "image/png", "image/webp"]);
-
-// Gemini needs a real request; keep this off the static/edge path.
+// The model needs a real request; keep this off the static/edge path.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/*
- * One message per gate failure. Every one of them names something the citizen
- * can actually change — never "extraction failed", which tells them nothing
- * and leaves them retaking the same bad photo.
- */
-
-/*
- * The wrong-side messages.
- *
- * Each one says which side is in front of the camera and what to physically do
- * about it. "Please retake the image" — the old catch-all — is useless here:
- * the photo was perfectly sharp, it was just of the wrong half of the card,
- * and a citizen told to retake it will take the same wrong photo again.
- */
-const SIDE_MESSAGES: Record<SideFailure, string> = {
-  front_is_back:
-    "That looks like the back of your CNIC. Please turn the card over and show the side with your photograph on it.",
-  back_is_front:
-    "That's the front of your CNIC again. Please turn the card over — the address is printed on the other side.",
-  same_side_twice:
-    "Both photos show the same side of your CNIC. Please photograph the other side too.",
-  sides_swapped:
-    "The two photos are the wrong way round — the front and back have been swapped. Let's take them again: start with the side that has your photograph on it.",
-};
-
-const GATE_MESSAGES: Record<GateFailure, string> = {
-  unreadable:
-    "I can't read the CNIC clearly. Please adjust the lighting, distance, or position and try again.",
-  low_confidence:
-    "Some CNIC information is unclear. Please retake the image with better lighting and focus.",
-  critical_field_unclear:
-    "I couldn't clearly read your name and CNIC number. Please retake the image with better lighting and focus.",
-  address_unclear:
-    "I couldn't clearly read the address on the back of your CNIC. Please retake the image with better lighting and focus.",
-};
 
 export async function POST(request: Request) {
   if (!isExtractorConfigured()) {
@@ -123,6 +102,12 @@ export async function POST(request: Request) {
     );
   }
 
+  /*
+   * The only checks left, and neither is a judgement about the photograph.
+   * A type the model cannot decode and a body larger than the upload limit
+   * are facts about the REQUEST — letting either through fails further in,
+   * with a worse message.
+   */
   for (const file of [frontFile, backFile].filter(Boolean) as File[]) {
     if (!ACCEPTED.has(file.type)) {
       return NextResponse.json(
@@ -159,79 +144,17 @@ export async function POST(request: Request) {
     const backScanned = Boolean(backFile);
 
     /*
-     * Gemini's output is untrusted. A number that is not CNIC-shaped is dropped
-     * rather than shown to the citizen as if it had been read successfully.
+     * The number is TIDIED when it already looks like a CNIC, and passed
+     * through untouched when it does not.
+     *
+     * This is formatting, not validation. The previous version blanked a
+     * number that failed the shape test, which meant one misread digit cost
+     * the citizen all thirteen and a fresh photograph. Handing back what the
+     * model saw leaves them one character to correct.
      */
     const rawCnic = extraction.cnicNumber;
     const cnicIsValid = rawCnic ? isValidCnicFormat(rawCnic) : false;
-    const cnicNumber = cnicIsValid ? formatCnic(rawCnic!) : null;
-
-    /*
-     * The entire decision — which side is in the photo, whether the values are
-     * safe to show, and what became of the address — lives in
-     * lib/cnic-decision.ts as one pure function, so the ORDER of those checks
-     * (which is load-bearing) is provable without a Gemini key or a session.
-     */
-    const decision = decideExtraction({
-      readable: extraction.readable,
-      frontReadable: extraction.frontReadable,
-      backReadable: extraction.backReadable,
-      frontImageSide: extraction.frontImageSide,
-      backImageSide: extraction.backImageSide,
-      confidence: extraction.confidence,
-      fieldConfidence: extraction.fieldConfidence,
-      values: {
-        fullName: extraction.fullName,
-        fatherName: extraction.fatherName,
-        cnicNumber,
-        dateOfBirth: extraction.dateOfBirth,
-        dateOfIssue: extraction.dateOfIssue,
-        dateOfExpiry: extraction.dateOfExpiry,
-        gender: extraction.gender,
-        nationality: extraction.nationality,
-      },
-      backScanned,
-      presentAddress: extraction.presentAddress,
-      permanentAddress: extraction.permanentAddress,
-      addressConfidenceMin: ADDRESS_CONFIDENCE_MIN,
-    });
-
-    /*
-     * THE GATE IS ADVISORY, NOT BLOCKING.
-     *
-     * It used to return 422 here and send the citizen back to the camera with
-     * nothing: a read the model was unsure about was discarded outright, on
-     * the reasoning that an empty box is safer than a plausible wrong value.
-     *
-     * That reasoning holds only if the citizen never sees the value. They do —
-     * every field on the next screen is editable, and checking their own name
-     * and CNIC number against the card in their hand is something a person is
-     * far better at than a confidence score is. Discarding the read made them
-     * retake a photograph and then type all nine fields by hand, which is
-     * slower AND more error-prone than correcting one wrong digit.
-     *
-     * So the read always comes back now. What the gate decided is reported
-     * alongside it — `unsureFields` drives a "check this" marker on exactly
-     * the fields the model hedged on, and `advisory` carries the human
-     * sentence explaining what went wrong with the photograph. The citizen
-     * decides, with the card in front of them, instead of the score deciding
-     * for them.
-     */
-    const unsureFields =
-      decision.kind === "accepted" ? decision.droppedFields : ALL_EXTRACTED_FIELDS;
-
-    const advisory =
-      decision.kind === "wrong_side"
-        ? SIDE_MESSAGES[decision.failure]
-        : decision.kind === "rejected"
-          ? GATE_MESSAGES[decision.failure]
-          : null;
-
-    /*
-     * Every value the model read is returned, including the ones it hedged on.
-     * `unsureFields` says which to flag; nothing is blanked.
-     */
-    const safeCnic = cnicNumber;
+    const cnicNumber = rawCnic ? (cnicIsValid ? formatCnic(rawCnic) : rawCnic) : null;
 
     /*
      * The response carries the full CNIC exactly once, because the citizen has
@@ -244,8 +167,8 @@ export async function POST(request: Request) {
       data: {
         fullName: extraction.fullName,
         fatherName: extraction.fatherName,
-        cnicNumber: safeCnic,
-        cnicMasked: safeCnic ? maskCnic(safeCnic) : null,
+        cnicNumber,
+        cnicMasked: cnicNumber && cnicIsValid ? maskCnic(cnicNumber) : null,
         dateOfBirth: extraction.dateOfBirth,
         dateOfIssue: extraction.dateOfIssue,
         dateOfExpiry: extraction.dateOfExpiry,
@@ -253,34 +176,29 @@ export async function POST(request: Request) {
         nationality: extraction.nationality,
         confidence: extraction.confidence,
         // Which fields came off the card — drives the "From CNIC" badges.
-        extractedFields:
-          decision.kind === "accepted" ? decision.acceptedFields : ALL_EXTRACTED_FIELDS,
-        /** Fields the model hedged on. Shown and editable, but marked "check this". */
-        unsureFields,
-        /** A plain sentence about the photograph, or null when it read cleanly. */
-        advisory,
+        extractedFields: ALL_EXTRACTED_FIELDS,
+        /*
+         * Kept in the payload, always empty. The review screen reads both, and
+         * an absent key would be a silent behaviour change in a component that
+         * is not otherwise part of this; an empty list says plainly that
+         * nothing is being flagged rather than that flagging was forgotten.
+         */
+        unsureFields: [] as string[],
+        advisory: null,
         // True only when the number is CNIC-shaped. NOT a claim of authenticity.
         cnicFormatChecked: cnicIsValid,
-        /*
-         * Only the "accepted" decision reasons about addresses — the reject
-         * paths bail out before that work is done. So the raw read is used
-         * there, on the same principle as every other field: show what the
-         * model saw and let the citizen correct it, rather than blanking an
-         * address because the gate never got round to judging it.
-         */
-        presentAddress:
-          decision.kind === "accepted" ? decision.presentAddress : extraction.presentAddress,
-        permanentAddress:
-          decision.kind === "accepted" ? decision.permanentAddress : extraction.permanentAddress,
+        presentAddress: extraction.presentAddress,
+        permanentAddress: extraction.permanentAddress,
         backScanned,
         /*
-         * "available" | "partial" | "unreadable" | "not_printed", plus the
-         * flag the UI must act on. The citizen is never left with an
-         * unexplained blank address.
+         * The address is "available" whenever the back was photographed. The
+         * citizen can see for themselves whether the lines came out right,
+         * and they can edit them either way; a scan-side verdict on top of
+         * that only ever produced a warning about text sitting legibly on
+         * the screen beside it.
          */
-        addressOutcome: decision.kind === "accepted" ? decision.addressOutcome : "partial",
-        addressNeedsManualEntry:
-          decision.kind === "accepted" ? decision.addressNeedsManualEntry : !backScanned,
+        addressOutcome: backScanned ? "available" : "not_printed",
+        addressNeedsManualEntry: !backScanned,
       },
     });
   } catch (error) {

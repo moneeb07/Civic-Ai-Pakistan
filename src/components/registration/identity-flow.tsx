@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getDictionary } from "@/lib/i18n";
 import { formatCnic, isValidCnicFormat, maskCnic } from "@/lib/cnic";
-import { planRetake, shouldOfferManualFallback } from "@/lib/registration/retake";
+import { shouldOfferManualFallback } from "@/lib/registration/retake";
 import type { AddressOutcome } from "@/lib/cnic-address-outcome";
 
 /*
@@ -293,81 +293,27 @@ export function IdentityFlow() {
         setError(payload.message ?? t.errors.unexpected);
 
         /*
-         * The accuracy gate rejected the read. Nothing extracted is kept and
-         * nothing is shown — the citizen goes back to the camera with the
-         * specific reason. Deliberately NOT a partial fill of the form: a
-         * form pre-filled from a rejected read is exactly the guessed data
-         * the gate exists to keep out.
-         */
-        /*
-         * Two different rejections send the citizen back to a camera:
+         * Every remaining failure is a failure to READ the card at all — the
+         * provider was unreachable, unconfigured, or returned nothing usable.
+         * There is no longer a "the photo wasn't good enough" rejection to
+         * distinguish from those, and so no per-side retake choreography
+         * either: the accuracy gate that produced those verdicts is gone, and
+         * the model's reading now always reaches the review screen where the
+         * citizen checks it against the card.
          *
-         *   low_confidence — the photo was of the right side but not readable
-         *   wrong_side     — the photo was perfectly sharp, but of the wrong
-         *                    half of the card
-         *
-         * They are handled together because the recovery is identical, but
-         * they are NOT the same event, and only the first one counts towards
-         * the "scanning keeps failing, offer manual entry" threshold. Showing
-         * the front twice is a mix-up a citizen fixes in one second once they
-         * are told; treating it as evidence that scanning does not work for
-         * them would push them into typing their CNIC out by hand over a
-         * mistake they have already corrected.
+         * A repeated failure still earns the prominent offer of manual entry.
+         * Somebody whose scan will not go through needs the door pointed out,
+         * whatever is behind the failure.
          */
-        if (payload.reason === "low_confidence" || payload.reason === "wrong_side") {
-          if (payload.reason === "low_confidence") {
-            // A fresh failure always has a chance to re-show the banner, even
-            // if a citizen dismissed it once and then hit another rough patch.
-            setScanFailureCount((count) => count + 1);
-            setTroubleBannerDismissed(false);
-          }
-
-          setFields(EMPTY);
-          setExtracted([]);
-          setUnsure([]);
-          setAdvisory(null);
-          setBackScanned(false);
-          setAddressOutcome(null);
-          setPresentAddress(null);
-          setPermanentAddress(null);
-
-          /*
-           * Only the side that actually failed is retaken (spec §25). The rule
-           * lives in lib/registration/retake.ts so it can be tested directly
-           * rather than only through a camera.
-           */
-          const plan = planRetake(payload.affectedSide, {
-            front: Boolean(frontBlobRef.current),
-            back: Boolean(backBlobRef.current),
-          });
-
-          /*
-           * Apply the plan's discards EXACTLY.
-           *
-           * The previous version dropped only `plan.retake`, which meant a
-           * verdict of "both images are unreadable" kept the unreadable back
-           * on file. The citizen was then sent to the front camera, their new
-           * front was immediately re-submitted against that same bad back, and
-           * the read failed identically — for ever, with the back camera never
-           * shown again. Since the address is printed on the back, the visible
-           * symptom was an address that could never be read.
-           */
-          for (const side of plan.discards) {
-            if (side === "front") frontBlobRef.current = null;
-            else backBlobRef.current = null;
-          }
-
-          setRetakeTarget(plan.keeps ? plan.retake : null);
-          setPhase(plan.retake === "front" ? "capture-front" : "capture-back");
-          return;
-        }
+        setScanFailureCount((count) => count + 1);
+        setTroubleBannerDismissed(false);
 
         setPhase(payload.reason === "not_configured" ? "manual" : "capture-front");
         return;
       }
 
-      // A read that actually passed the gate resets the counter — one rough
-      // patch is never held against a citizen who then reads cleanly.
+      // A scan that came back resets the counter — one rough patch is never
+      // held against a citizen whose next attempt reads fine.
       setScanFailureCount(0);
 
       const data = payload.data;

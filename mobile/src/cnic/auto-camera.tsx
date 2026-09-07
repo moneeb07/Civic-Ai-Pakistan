@@ -2,64 +2,43 @@ import * as React from "react";
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  Camera,
-  useCameraDevice,
-  useCameraPermission,
-  useFrameProcessor,
-} from "react-native-vision-camera";
-import { useRunOnJS } from "react-native-worklets-core";
+import { Camera, useCameraDevice, useCameraPermission } from "react-native-vision-camera";
 
 import { CardOverlay } from "./card-overlay";
-import { useCardDetector } from "./detect-card";
 import { Button } from "@/components/ui";
 import { colors, spacing } from "@/theme";
 
 /*
- * The CNIC camera: a guided viewfinder with a MANUAL shutter.
+ * The CNIC camera: a viewfinder with a box and a shutter button. Nothing else.
  *
- * It used to fire by itself once the card looked aligned and still for three
- * seconds. That is gone, and the reason is worth recording, because the
- * machinery it drove is still here.
+ * WHAT THIS SCREEN USED TO DO.
+ * It ran a per-frame detector on the native thread — card presence, edge
+ * aspect, size, background contrast, tilt, brightness, glare, plus a motion
+ * signature compared frame to frame — accumulated a stability streak, and
+ * fired the shutter by itself when it was satisfied.
  *
- * Auto-capture decides FOR the citizen, at the one moment they most need the
- * decision: they are still squaring up the card, the detector calls it good,
- * and the photograph is taken. There was no way to say "not yet" — and no way
- * to say "yes, now" either, so someone whose card the detector could not read
- * (dark room, patterned table, a laminated card throwing glare) was left
- * pointing a camera that would never fire. Both failures produced the same
- * thing: a retake.
+ * Two failures came out of that, and they were opposite ends of the same
+ * mistake. The camera committed to a frame while the citizen was still
+ * squaring up the card, with no way to say "wait"; and where the detector
+ * could not see a card at all — a dim room, a patterned tablecloth, a
+ * laminate throwing glare — it simply never fired, leaving someone pointing a
+ * camera at a perfectly readable card and waiting. Both ended in a retake.
  *
- * So the detector stays and keeps advising — the box turns green, the hint
- * says what is wrong — but pressing the shutter is the citizen's. The button
- * is never disabled, deliberately: the detector is a guide, not an authority,
- * and it is wrong often enough that gating on it would strand people holding
- * a perfectly readable card.
+ * The detector is gone rather than demoted. Its judgements were about pixels,
+ * and the question that matters is whether the model can read the card, which
+ * it does on photographs the detector graded badly. Keeping it as advice would
+ * still have put a red box and a stream of corrections in front of somebody
+ * whose photograph was going to work.
  *
- * All of the detection runs on-device. No frame is uploaded to decide anything
- * — only the single photograph the citizen chooses to take is sent, and that
- * goes to CivicAI's own extraction endpoint.
+ * So: the box shows where to put the card, the line above says so, and the
+ * button takes the picture when the citizen decides. The photograph goes to
+ * the extraction endpoint and whatever the model reads comes back as editable
+ * fields, where the person holding the card checks it. That is the only check
+ * this flow needs, and it is a far better one than any of the above.
+ *
+ * Nothing is uploaded except the single photograph the citizen chooses to
+ * take, and that goes to CivicAI's own endpoint.
  */
-
-// Loosened alongside detect-card.ts's thresholds — see the note there. Two
-// confirming frames commits to the countdown a beat sooner than three.
-const CARD_PRESENT_FRAMES = 2;
-
-// Max average per-sample brightness change between frames still considered
-// "held still". While the card is being moved into place this runs high, and
-// counting those frames is what caused captures to fire mid-movement.
-// Raised from 14: ordinary hand tremor holding a phone up reads higher than a
-// device braced on a desk, and at 14 that tremor alone was enough to keep
-// resetting the "steady" streak — which is a large part of what "rigid" meant
-// in practice, since the countdown could never get past "Hold still…".
-const MOTION_THRESHOLD = 22;
-
-// How many consecutive bad frames are tolerated before progress is thrown
-// away. Without this the countdown restarts on a single frame that dips out
-// of alignment, which normal hand-shake does constantly — the timer then
-// only ever advances while the card is held unnaturally rigid. At ~30fps
-// this rides out roughly a third of a second of wobble.
-const GRACE_FRAMES = 10;
 
 /*
  * A note on cropping.
@@ -70,17 +49,16 @@ const GRACE_FRAMES = 10;
  * point, so Expo's autolinking tries to require a .ts file and Node refuses,
  * which stops the dev server before it starts.
  *
- * The whole photograph is sent instead. The ROI still does its real work —
- * it drives the overlay and the detector, so the citizen has framed the card
- * inside the box and it dominates the image — and CivicAI's extraction
- * endpoint reads the card out of the full frame, exactly as it does for the
- * web app, which uploads whole webcam frames too.
+ * The whole photograph is sent instead. The box still does its real work — the
+ * citizen frames the card inside it, so the card dominates the image — and the
+ * extraction endpoint reads the card out of the full frame, exactly as it does
+ * for the web app, which uploads whole photographs too.
  */
 
 export interface AutoCameraProps {
   /** Which side of the card is being asked for — changes only the wording. */
   side: "front" | "back";
-  /** Handed the cropped JPEG's file URI once a capture is accepted. */
+  /** Handed the captured JPEG's file URI. */
   onCaptured: (uri: string) => void;
   /** Rendered when the camera cannot be used at all. */
   onUnavailable: (reason: string) => void;
@@ -92,18 +70,13 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice("back");
   const camera = React.useRef<Camera>(null);
-  const detect = useCardDetector();
   const insets = useSafeAreaInsets();
 
-  const [aligned, setAligned] = React.useState(false);
-  const [hint, setHint] = React.useState("Align the card…");
   const [busy, setBusy] = React.useState(false);
   const [denied, setDenied] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const presentCount = React.useRef(0); // consecutive frames a card has been seen
-  const missCount = React.useRef(0); // consecutive bad frames, for the grace period
   const lockRef = React.useRef(false); // prevents re-entrant captures
-  const prevSig = React.useRef<number[] | null>(null);
 
   React.useEffect(() => {
     if (hasPermission) return;
@@ -116,6 +89,7 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
     if (lockRef.current || !camera.current) return;
     lockRef.current = true;
     setBusy(true);
+    setError(null);
     try {
       const photo = await camera.current.takePhoto({ flash: "off" });
       // Android reports a bare filesystem path; everything downstream needs a URI.
@@ -126,105 +100,11 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
       onCaptured(uri);
     } catch {
       lockRef.current = false; // allow retry on failure
-      setHint("Capture failed — try again");
+      setError("Capture failed — try again");
     } finally {
       setBusy(false);
     }
   }, [onCaptured]);
-
-  // Bridge from the frame-processor (native) thread back to JS state.
-  const onResult = useRunOnJS(
-    (res: ReturnType<ReturnType<typeof useCardDetector>>) => {
-      if (lockRef.current) return;
-
-      // How much did the interior change since the last frame? While the card
-      // is still being positioned this is high, and those frames must not
-      // count toward the stable streak or the shutter fires mid-movement.
-      let motion = 999;
-      if (prevSig.current && res.sig) {
-        let s = 0;
-        for (let i = 0; i < res.sig.length; i++) {
-          s += Math.abs(res.sig[i] - prevSig.current[i]);
-        }
-        motion = s / res.sig.length;
-      }
-      prevSig.current = res.sig ?? null;
-      const steady = motion < MOTION_THRESHOLD;
-
-      /* ---- A bad frame — but don't necessarily throw progress away. ----
-       * Hands shake. Demanding an unbroken run of perfect frames means the
-       * countdown restarts constantly and only advances while the card is
-       * held unnaturally rigid. So once there is progress worth keeping,
-       * ride out a short run of bad frames: the countdown keeps running and
-       * the pill is left alone rather than flickering between messages.
-       */
-      if (!res.aligned || !steady) {
-        missCount.current += 1;
-        const hasProgress = presentCount.current > 0;
-        if (hasProgress && missCount.current <= GRACE_FRAMES) return;
-
-        presentCount.current = 0;
-
-        if (res.aligned) {
-          // Card is there, just genuinely unsettled for longer than the grace
-          // period — keep the box green and only ask for stillness.
-          setAligned(true);
-          setHint("Hold still…");
-          return;
-        }
-
-        setAligned(false);
-        // Guidance driven by whichever specific test failed, most actionable
-        // first — telling someone to "hold steady" is useless if the real
-        // problem is that the card is too far away.
-        if (!res.litOk && res.brightness <= 70) setHint("Too dark — add more light");
-        else if (!res.litOk) setHint("Too bright — reduce glare");
-        else if (!res.sizeOk) setHint("Move the card closer");
-        else if (!res.aspectOk) setHint("Show the whole card in the box");
-        else if (!res.borderClear) setHint("Keep the card clear of the background");
-        else if (!res.contrastOk) setHint("Move to a plainer background");
-        else if (!res.flatEnough) setHint("Flatten the card, avoid tilt");
-        else setHint("Align the card…");
-        return;
-      }
-
-      // Good frame — the wobble budget resets.
-      missCount.current = 0;
-      setAligned(true);
-
-      // ---- Stage 1: confirm a card is really there before committing. ----
-      presentCount.current += 1;
-      if (presentCount.current < CARD_PRESENT_FRAMES) {
-        setHint("Checking card…");
-        return;
-      }
-
-      /* ---- Stage 2: card confirmed. The citizen presses the shutter. ----
-       *
-       * This used to run a countdown and fire the shutter itself. It was
-       * removed because it took the decision away at exactly the wrong moment:
-       * the camera would commit to a frame while someone was still adjusting
-       * the card, and there was no way to say "wait". Worse, it fired on
-       * ITS OWN judgement of alignment — so a citizen who could see the photo
-       * was going to be bad had to watch it happen anyway, then retake.
-       *
-       * The detector still runs, and everything it learned is still used: the
-       * box turns green and the hint says the card is ready. It just advises
-       * now instead of deciding. The shutter is a button.
-       */
-      setHint("Looks good — press the button");
-    },
-    [],
-  );
-
-  const frameProcessor = useFrameProcessor(
-    (frame) => {
-      "worklet";
-      const res = detect(frame);
-      onResult(res);
-    },
-    [detect, onResult],
-  );
 
   /*
    * No camera at all, or the citizen said no. Either way this screen cannot
@@ -264,35 +144,29 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
         device={device}
         isActive
         photo
-        frameProcessor={frameProcessor}
       />
+
+      {/*
+        The box is drawn in its ready colour permanently.
+
+        It used to change with the detector's verdict, and that is precisely
+        what made it unhelpful: a citizen holding a card the model would read
+        without difficulty watched the box sit red and a hint tell them to move
+        to a plainer background. It marks where to put the card. It is not a
+        verdict on anything.
+      */}
       <CardOverlay
-        aligned={aligned}
-        hint={hint}
+        aligned
+        hint={error ?? "Press the button when the card is inside the box"}
         title={side === "front" ? "Front of your CNIC" : "Back of your CNIC"}
       />
-      {/*
-        The standing instruction, above everything.
 
-        Deliberately separate from the live hint below the box: that one
-        changes constantly as the detector reacts, and a message that moves is
-        a message nobody reads. This one never changes, so it can be relied on
-        — it is the whole job of this screen in one line.
-      */}
+      {/* The standing instruction — the whole job of this screen in one line. */}
       <View style={[styles.instruction, { top: insets.top + spacing.xl * 2 }]}>
         <Text style={styles.instructionText}>Fit your CNIC inside the box</Text>
       </View>
 
-      {/*
-        The shutter. Always enabled, even when the detector is unhappy.
-
-        Refusing to take the photograph would reintroduce the problem this
-        change exists to fix: the detector is a guide, not an authority, and it
-        is wrong often enough — poor light, a plain background it reads as no
-        card — that locking the button would strand someone with a perfectly
-        readable card and no way to proceed. The green box tells them when it
-        thinks the shot is good; pressing anyway is their call.
-      */}
+      {/* The shutter. The only thing that decides when a photograph is taken. */}
       <View style={[styles.shutterBar, { paddingBottom: insets.bottom + spacing.lg }]}>
         <Pressable
           accessibilityRole="button"
@@ -301,11 +175,10 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
           disabled={busy}
           style={({ pressed }) => [
             styles.shutter,
-            aligned && styles.shutterReady,
             (pressed || busy) && { opacity: 0.6 },
           ]}
         >
-          <View style={[styles.shutterInner, aligned && styles.shutterInnerReady]} />
+          <View style={styles.shutterInner} />
         </Pressable>
       </View>
 
@@ -320,6 +193,7 @@ export default function AutoCamera({ side, onCaptured, onUnavailable, onCancel }
           <Ionicons name="close" size={22} color={colors.white} />
         </Pressable>
       ) : null}
+
       {busy ? (
         <View style={styles.capturing}>
           <ActivityIndicator color={colors.white} />
@@ -374,19 +248,16 @@ const styles = StyleSheet.create({
     height: 76,
     borderRadius: 38,
     borderWidth: 4,
-    borderColor: "rgba(255,255,255,0.85)",
+    borderColor: colors.civic500,
     alignItems: "center",
     justifyContent: "center",
   },
-  // Green once the detector is happy: an invitation, never a gate.
-  shutterReady: { borderColor: colors.civic500 },
   shutterInner: {
     width: 58,
     height: 58,
     borderRadius: 29,
     backgroundColor: colors.white,
   },
-  shutterInnerReady: { backgroundColor: colors.civic500 },
   close: {
     position: "absolute",
     left: spacing.md,
