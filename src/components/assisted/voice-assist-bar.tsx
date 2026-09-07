@@ -1,12 +1,13 @@
 "use client";
 
+import * as React from "react";
 import { Ear, Volume2, VolumeX, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { getDictionary } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useAssistedMode } from "./assisted-mode-provider";
-import { useStepAnnouncement, useVoiceGuidance } from "./use-voice-guidance";
+import { useSpokenGuidance } from "./use-spoken-guidance";
 
 const t = getDictionary();
 
@@ -29,9 +30,42 @@ export function VoiceAssistBar({
   className?: string;
 }) {
   const { enabled, setEnabled, shouldOffer, dismissOffer } = useAssistedMode();
-  const { supported, speaking, speak, stop } = useVoiceGuidance();
 
-  useStepAnnouncement(phrase);
+  /*
+   * The provider's voice, with the device's as a fallback — see
+   * use-spoken-guidance.ts. This bar used to drive `speechSynthesis`
+   * directly, which is why it sat there saying "Voice guidance on" while
+   * playing nothing on the deployed site.
+   */
+  const { speaking, loading, needsGesture, play, stop } = useSpokenGuidance();
+
+  /*
+   * The step's instruction, spoken once when the screen opens.
+   *
+   * Depends on the phrase and on whether the citizen wants to hear it —
+   * never on `play`, whose identity is not part of "has the sentence
+   * changed". Tying an announcement to a function identity is what made the
+   * voice repeat itself endlessly once before.
+   */
+  const playRef = React.useRef(play);
+  React.useEffect(() => {
+    playRef.current = play;
+  }, [play]);
+
+  React.useEffect(() => {
+    if (!enabled) return;
+    // A short delay so the screen has painted before the voice starts.
+    const timer = window.setTimeout(() => playRef.current(phrase), 350);
+    return () => window.clearTimeout(timer);
+  }, [enabled, phrase]);
+
+  /*
+   * Speech synthesis is no longer what decides whether voice is on offer —
+   * the server generates the audio, so a device with no voices installed can
+   * still be read to. Only a browser with no <audio> at all could fail, and
+   * that is not a browser this app runs in.
+   */
+  const supported = true;
 
   if (shouldOffer) {
     return (
@@ -111,22 +145,29 @@ export function VoiceAssistBar({
 
       <span className="flex-1" />
 
+      {/*
+        One button that stops what is playing or starts it again.
+
+        It is ringed when the browser refused to autoplay: nothing is wrong,
+        but the citizen is looking at "Voice guidance on" and hearing nothing,
+        and the only thing that will fix that is a press. Pointing at the
+        button is more use than an explanation of autoplay policy.
+      */}
       <button
         type="button"
-        onClick={() => (speaking ? stop() : speak(phrase))}
-        className="inline-flex min-h-9 items-center gap-1.5 rounded-full bg-surface px-3 text-[0.8125rem] font-medium text-ink transition-colors hover:bg-civic-100"
+        disabled={loading}
+        onClick={() => (speaking ? stop() : play(phrase))}
+        className={cn(
+          "inline-flex min-h-9 items-center gap-1.5 rounded-full bg-surface px-3 text-[0.8125rem] font-medium text-ink transition-colors hover:bg-civic-100 disabled:opacity-60",
+          needsGesture && !speaking && "ring-2 ring-civic-500",
+        )}
       >
         {speaking ? (
-          <>
-            <VolumeX className="size-3.5" aria-hidden="true" />
-            {t.assisted.repeat}
-          </>
+          <VolumeX className="size-3.5" aria-hidden="true" />
         ) : (
-          <>
-            <Volume2 className="size-3.5" aria-hidden="true" />
-            {t.assisted.repeat}
-          </>
+          <Volume2 className="size-3.5" aria-hidden="true" />
         )}
+        {loading ? t.assisted.loading : t.assisted.repeat}
       </button>
 
       <button

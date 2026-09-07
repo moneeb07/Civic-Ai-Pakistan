@@ -51,7 +51,19 @@ export function RegistrationShell({
               <span className="size-10" aria-hidden="true" />
             )}
 
-            <CivicAILogo showCountry={false} className="flex-1 justify-center" />
+            {/*
+              The logo is a link home, which is what people expect a masthead
+              to be — and here it is also the only exit. The back arrow walks
+              one step at a time and is absent on the first screen, so a
+              citizen who opened registration by mistake had nothing to press.
+            */}
+            <Link
+              href="/"
+              aria-label={`${t.brand.name} — home`}
+              className="flex-1 rounded-[10px] transition-opacity hover:opacity-80"
+            >
+              <CivicAILogo showCountry={false} className="justify-center" />
+            </Link>
 
             <span className="size-10" aria-hidden="true" />
           </div>

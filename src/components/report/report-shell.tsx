@@ -55,7 +55,15 @@ export function ReportShell({
               <span className="size-10" aria-hidden="true" />
             )}
 
-            <CivicAILogo showCountry={false} className="flex-1 justify-center" />
+            {/* Same as the registration shell: the masthead is a way home,
+                which the back arrow alone does not provide. */}
+            <Link
+              href="/home"
+              aria-label="CivicAI — home"
+              className="flex-1 rounded-[10px] transition-opacity hover:opacity-80"
+            >
+              <CivicAILogo showCountry={false} className="justify-center" />
+            </Link>
 
             <span className="size-10" aria-hidden="true" />
           </div>

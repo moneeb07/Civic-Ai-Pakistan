@@ -2,20 +2,87 @@
 
 **Your Voice. Your City. Your Right to Be Heard.**
 
-An AI-powered, voice-first civic complaint and accountability platform for
-Pakistan — a web app and a companion Android/iOS app sharing one backend.
+![CivicAI Pakistan — one vision, two platforms: a web app and a mobile app for reporting civic issues](docs/images/civicai-overview.jpeg)
 
-A citizen photographs a pothole. The AI says what it sees, **reads it back in
-Urdu**, and asks if that's right. They describe the rest in their own words —
-spoken, in Urdu, if they'd rather not type. The complaint is written, routed to
-the department that actually owns it, grouped with everyone else who reported
-the same pothole, and tracked to completion. The department's response times
-are public.
+---
+
+## Why we built this
+
+In most Pakistani cities, reporting a broken streetlight means finding the
+right office, knowing which department owns the problem, filling in a form in
+English, and then never hearing anything again. The people most affected by
+civic neglect are usually the people least equipped to navigate that: someone
+who reads little English, or reads nothing at all, has no way in.
+
+So we removed the form.
+
+**A citizen takes a photograph. That is the whole first step.** The AI looks at
+the picture, says what it sees, and **reads it back to them in Urdu** — then
+asks, plainly, "is this right?" If it is, they carry on. If it isn't, they hold
+the microphone and say what the problem really is, in their own words, in their
+own language. No typing. No English. No knowing which department to ask for.
+
+Behind that, the complaint is written properly, routed to the department that
+genuinely owns it, grouped with everyone else who reported the same pothole so
+one street's problem doesn't arrive as forty separate tickets, and tracked
+until it is fixed. Every department's response time is public.
+
+**Three steps to report a problem. That is the entire product.**
+
+| | |
+|---|---|
+| **1. Photograph** | Point the camera at the problem. The AI identifies it. |
+| **2. Confirm** | It reads its finding aloud in Urdu. Agree, or correct it by voice. |
+| **3. Submit** | It writes the complaint, finds the right department, and tracks it. |
+
+We built it twice over — **a web app and an Android/iOS app** — because a
+citizen with a cheap phone and a government officer at a desk need very
+different things from the same system, and both have to work.
+
+---
+
+## What a reviewer should look at
+
+If you have ten minutes, this is the path that shows the whole idea:
+
+1. **[Quick start](#quick-start)** — five minutes to a running web app. Works
+   with no database and no paid API key; see [AI providers](#ai-providers).
+2. **Register as a citizen** at `/register`. Turn on **voice guidance** at the
+   top. Photograph a CNIC — the AI reads it, and every field it returns stays
+   editable, because a model reading a laminated card in poor light will
+   sometimes get a digit wrong and the person holding the card will not.
+3. **Report an issue** at `/report`. Photograph anything. Listen to the Urdu
+   read-back. This is the part the project exists for.
+4. **Sign in as an officer** at `/gov/login` (credentials under
+   [Test accounts](#test-accounts)) and watch the same report arrive, routed,
+   grouped, and waiting for a human decision.
+5. **Open `/performance`** — the public accountability page. Rankings use
+   Bayesian shrinkage, so a department that closed three easy tickets does not
+   outrank one that closed three hundred hard ones.
+
+**Design notes worth knowing before you judge the code:**
+
+- **The AI's reading is never silently discarded.** An earlier version scored
+  its own confidence and refused low-scoring reads. It was wrong often enough
+  to be worse than useless — citizens were sent back to retake photographs that
+  had worked. Now the model reads, the citizen checks against the card in their
+  hand, and every field is editable.
+- **The Urdu voice is generated server-side.** Browser speech synthesis can
+  only use voices the device has installed, and Urdu is installed almost
+  nowhere. It fails silently — reports success, plays nothing — so it is the
+  fallback, not the mechanism.
+- **Three AI providers, one interface.** OpenAI, Gemini and OpenRouter are
+  interchangeable through a single gate, chosen by one environment variable, so
+  the whole product can be run and compared on any of them.
+
+---
 
 ---
 
 ## Contents
 
+- [Why we built this](#why-we-built-this)
+- [What a reviewer should look at](#what-a-reviewer-should-look-at)
 - [Quick start](#quick-start) — web running in 5 minutes
 - [Running the mobile app](#running-the-mobile-app)
 - [What it does](#what-it-does)

@@ -137,8 +137,10 @@ export const en = {
      */
     scanFront: "Scan the front",
     scanBack: "Scan the back",
-    uploadFront: "Upload front",
-    uploadBack: "Upload back",
+    uploadFront: "سامنے والا رخ اپ لوڈ کریں",
+    uploadBack: "پچھلا رخ اپ لوڈ کریں",
+    uploadFrontEn: "Upload front",
+    uploadBackEn: "Upload back",
     manual: "Enter details manually",
     manualHint: "No camera? You can type your CNIC details instead.",
     /*
@@ -153,12 +155,18 @@ export const en = {
     troubleScanningAction: "Enter details manually",
     dismissAndKeepTrying: "Keep trying to scan",
     /*
-     * The drop-zone captions. They said "Place your CNIC inside the frame"
-     * — camera language, on a screen that has no camera and no frame. The
-     * spoken guidance asks for an upload; these now ask for the same thing,
-     * so the voice and the screen are not describing two different actions.
+     * The drop-zone captions, Urdu above English.
+     *
+     * They said "Place your CNIC inside the frame" — camera language, on a
+     * screen with no camera and no frame. They now say what the spoken
+     * guidance says, in the same language it says it in, so a citizen hearing
+     * "اپنا شناختی کارڈ اپ لوڈ کریں" sees those words on the button they are
+     * being asked to press. The English line stays underneath because the
+     * rest of the app's chrome is still English.
      */
-    frameLabel: "Upload the front of your CNIC",
+    frameLabel: "اپنے شناختی کارڈ کا سامنے والا رخ اپ لوڈ کریں",
+    frameLabelEn: "Upload the front of your CNIC",
+    frameLabelBackEn: "Upload the back of your CNIC",
     guidance: {
       heading: "For the best result",
       flat: "Place the CNIC on a flat surface",
@@ -187,7 +195,7 @@ export const en = {
     backTitle: "Now scan the back",
     backSubtitle:
       "The back of your CNIC has your address. This lets us fill that in for you too.",
-    frameLabelBack: "Upload the back of your CNIC",
+    frameLabelBack: "اپنے شناختی کارڈ کا پچھلا رخ اپ لوڈ کریں",
     skipBack: "Skip — I'll enter my address manually",
     frontCaptured: "Front captured",
 
@@ -667,12 +675,13 @@ export const en = {
     enabled: "Voice guidance on",
     disable: "Turn off voice guidance",
     repeat: "Repeat",
+    loading: "Loading…",
     unsupported:
       "Voice guidance isn't available in this browser, but every step still has written instructions.",
   },
 
   /*
-   * Spoken guidance, in Roman Urdu so it reads naturally through an Urdu voice.
+   * Spoken guidance.
    * Nothing here ever mentions, requests or repeats a password.
    */
   voice: {

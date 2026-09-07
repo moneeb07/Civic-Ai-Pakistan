@@ -48,8 +48,10 @@ interface CnicCaptureProps {
   /** Receives a compressed JPEG ready to upload. */
   onCaptured: (image: { blob: Blob; dataUrl: string }) => void;
   disabled?: boolean;
-  /** Overrides the frame instruction — used to distinguish front from back capture. */
+  /** Overrides the Urdu drop-zone instruction — distinguishes front from back. */
   frameLabel?: string;
+  /** The English line under it. Defaults to the side's own wording. */
+  frameLabelEn?: string;
   /** Overrides the alt text on the confirmation preview. */
   previewAlt?: string;
   /**
@@ -68,6 +70,7 @@ export function CnicCapture({
   onCaptured,
   disabled,
   frameLabel = t.identity.frameLabel,
+  frameLabelEn,
   previewAlt = "The CNIC photo you just took",
   title,
   side,
@@ -78,6 +81,11 @@ export function CnicCapture({
    * holding a two-sided card and has to know which face to present.
    */
   const uploadLabel = side === "front" ? t.identity.uploadFront : t.identity.uploadBack;
+  const uploadLabelEn =
+    side === "front" ? t.identity.uploadFrontEn : t.identity.uploadBackEn;
+  const dropLabelEn =
+    frameLabelEn ??
+    (side === "front" ? t.identity.frameLabelEn : t.identity.frameLabelBackEn);
 
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const [preview, setPreview] = React.useState<{ blob: Blob; dataUrl: string } | null>(
@@ -219,7 +227,20 @@ export function CnicCapture({
         ) : (
           <ImageUp className="size-7 text-civic-700" aria-hidden="true" />
         )}
-        <span className="text-[0.875rem] font-medium text-ink/80">{frameLabel}</span>
+        {/*
+          Urdu carries the instruction; English restates it. `dir="rtl"` is on
+          the Urdu line specifically — the surrounding page is left-to-right,
+          and marking the whole container would reverse the icon and the
+          English line with it.
+        */}
+        <span
+          dir="rtl"
+          lang="ur"
+          className="text-[1.0625rem] font-semibold leading-relaxed text-ink"
+        >
+          {frameLabel}
+        </span>
+        <span className="text-[0.8125rem] text-muted">{dropLabelEn}</span>
       </button>
 
       {error ? (
@@ -235,7 +256,12 @@ export function CnicCapture({
         className="mt-4 min-h-12 w-full"
       >
         {!busy ? <ImageUp className="size-4" aria-hidden="true" /> : null}
-        {uploadLabel}
+        <span className="flex flex-col items-center leading-tight">
+          <span dir="rtl" lang="ur" className="text-[0.9375rem] font-semibold">
+            {uploadLabel}
+          </span>
+          <span className="text-[0.6875rem] font-medium opacity-80">{uploadLabelEn}</span>
+        </span>
       </Button>
     </div>
   );
