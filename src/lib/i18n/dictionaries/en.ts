@@ -130,6 +130,15 @@ export const en = {
       "Scan your CNIC to automatically fill the information available on your document.",
     scan: "Scan CNIC",
     upload: "Upload CNIC",
+    /*
+     * Side-specific labels. "Scan CNIC" is ambiguous at the exact moment it
+     * matters — the citizen is holding a two-sided card and has to know which
+     * face to present. Naming the side in the button removes the guess.
+     */
+    scanFront: "Scan the front",
+    scanBack: "Scan the back",
+    uploadFront: "Upload front",
+    uploadBack: "Upload back",
     manual: "Enter details manually",
     manualHint: "No camera? You can type your CNIC details instead.",
     /*
@@ -479,6 +488,13 @@ export const en = {
     cameraTitle: "Point your camera at the problem",
     cameraSubtitle: "Take a clear photo of the civic issue you'd like to report.",
     cameraInstruction: "The problem doesn't need to fill the frame — just make sure it's visible.",
+    tipDownTitle: "Point camera down at the issue",
+    tipDownBody: "Take the photo from a close distance.",
+    tipCenteredTitle: "Keep the problem centered",
+    tipCenteredBody: "Make sure the issue is in the middle of the photo.",
+    tipLightingTitle: "Make sure the area is clearly visible",
+    tipLightingBody: "Good lighting helps us see the details.",
+    commonIssuesPrompt: "Common issues you can report",
     capture: "Capture",
     retake: "Retake",
     usePhoto: "Use this photo",
@@ -714,6 +730,36 @@ export const en = {
       noAccess: "This account has no government access.",
       invalid: "That email or password is not correct.",
       noSignUp: "Government accounts are created by invitation only.",
+    },
+
+    /*
+     * The onboarding screen exists because the landing page offers "Authority
+     * Registration / Onboarding", and there is no such thing as authority
+     * self-registration. Rather than quietly send that button to the sign-in
+     * form, this page says how an account is actually obtained and gives the
+     * one self-service path that genuinely exists: redeeming an invitation.
+     */
+    onboarding: {
+      eyebrow: "Authority onboarding",
+      title: "Getting your department onto CivicAI",
+      subtitle:
+        "Government accounts are issued by invitation — they cannot be created here or by signing up.",
+      haveInviteTitle: "You have an invitation",
+      haveInviteBody:
+        "Paste the invitation link from your email, or just the code at the end of it.",
+      tokenLabel: "Invitation link or code",
+      tokenPlaceholder: "https://…/gov/invite/… or the code itself",
+      tokenSubmit: "Continue",
+      tokenInvalid:
+        "That doesn't look like an invitation link. Copy the whole link from your invitation email and paste it here.",
+      noInviteTitle: "You don't have one yet",
+      noInviteBody:
+        "Ask the administrator at your own organization to invite you. They can do it from Members in the CivicAI workspace, and the invitation arrives at your official email address.",
+      newOrgTitle: "Your organization isn't on CivicAI at all",
+      newOrgBody:
+        "A new authority is added by a CivicAI platform administrator, who creates the organization and appoints its first head. Contact them through your usual departmental channel — there is no public sign-up for this.",
+      alreadyHaveAccount: "Already have an account?",
+      signIn: "Government sign in",
     },
 
     invite: {

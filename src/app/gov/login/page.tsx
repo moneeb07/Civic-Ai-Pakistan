@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
+import Link from "next/link";
+
 import { CivicAILogo } from "@/components/brand/civicai-logo";
 import { Card, CardBody } from "@/components/ui/card";
 import { GovLoginForm } from "@/components/gov/login-form";
@@ -62,6 +64,19 @@ export default async function GovLoginPage({
             <div className="mt-6">
               <GovLoginForm initialError={initialError} />
             </div>
+
+            {/*
+              The one place this stays reachable now that the landing page no
+              longer carries a full "Authority Operations Portal" panel with
+              its own onboarding button. Somebody without an account yet is
+              looking for this exact link, on this exact page.
+            */}
+            <p className="mt-6 border-t border-line pt-5 text-center text-[0.875rem] text-muted">
+              Have an invitation but no account?{" "}
+              <Link href="/gov/onboarding" className="font-semibold text-civic-700 hover:underline">
+                Redeem it
+              </Link>
+            </p>
           </CardBody>
         </Card>
       </main>

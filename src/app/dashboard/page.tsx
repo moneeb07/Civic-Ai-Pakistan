@@ -6,22 +6,27 @@ import {
   BarChart3,
   Building2,
   Camera,
+  CheckCircle2,
+  Clock,
   Droplets,
   FileText,
   Lightbulb,
   MessagesSquare,
   Mic,
+  ShieldAlert,
   Trash2,
   TriangleAlert,
 } from "lucide-react";
 
 import { CitizenShell } from "@/components/dashboard/citizen-shell";
+import { DashboardHero } from "@/components/dashboard/dashboard-hero";
 import { StatusProgress } from "@/components/civic/status-progress";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardEyebrow } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/states";
 import { StatCard } from "@/components/ui/stat-card";
 import { formatDate } from "@/lib/civic/format-date";
+import { cn } from "@/lib/utils";
 import { getCitizenSummary, listCitizenReports } from "@/lib/civic/tracking";
 import { listThreadsForCitizen } from "@/lib/gov/clarification";
 import { getDictionary } from "@/lib/i18n";
@@ -46,17 +51,38 @@ function greeting(): string {
     }).format(new Date()),
   );
 
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
+  if (hour < 12) return t.dashboard.greetingMorning;
+  if (hour < 17) return t.dashboard.greetingAfternoon;
+  return t.dashboard.greetingEvening;
 }
 
-const COMMON_ISSUES = [
-  { icon: TriangleAlert, label: t.dashboard.potholes },
-  { icon: Trash2, label: t.dashboard.garbage },
-  { icon: Lightbulb, label: t.dashboard.streetLight },
-  { icon: Droplets, label: t.dashboard.waterLeakage },
+/*
+ * The six categories shown as report shortcuts.
+ *
+ * Every label is this project's own real category — `t.report.categories`,
+ * the same ten the AI vision step can actually detect — never an invented
+ * label with nothing behind it. All six still open the SAME general report
+ * flow: there is no query-string pre-selection to send them to, because the
+ * camera step re-runs AI vision and asks the citizen to confirm a category
+ * regardless of how they arrived, so a tile claiming to jump straight to
+ * "Water leakage" would be overridden the moment a photo is analysed. These
+ * are a faster way to SEE what is reportable, not a shortcut past that step.
+ */
+const REPORT_CATEGORIES = [
+  { icon: Trash2, tone: "success" as const, category: "GARBAGE" as const },
+  { icon: TriangleAlert, tone: "warning" as const, category: "ROAD_DAMAGE" as const },
+  { icon: Lightbulb, tone: "warning" as const, category: "BROKEN_STREETLIGHT" as const },
+  { icon: Droplets, tone: "neutral" as const, category: "WATER_LEAKAGE" as const },
+  { icon: ShieldAlert, tone: "danger" as const, category: "DAMAGED_PUBLIC_INFRASTRUCTURE" as const },
+  { icon: FileText, tone: "neutral" as const, category: "OTHER" as const },
 ];
+
+const CATEGORY_TONE_BG: Record<string, string> = {
+  success: "bg-status-resolved-bg text-status-resolved",
+  warning: "bg-status-process-bg text-status-process",
+  danger: "bg-status-reported-bg text-status-reported",
+  neutral: "bg-civic-50 text-civic-700",
+};
 
 /*
  * The citizen's home.
@@ -99,10 +125,10 @@ export default async function DashboardPage() {
       unreadMessages={awaitingReply.length}
     >
       <div className="mx-auto w-full max-w-5xl">
-        <h1 className="text-[1.5rem] font-bold leading-tight tracking-tight text-ink sm:text-[1.75rem]">
-          {greeting()}, {firstName}
-        </h1>
-        <p className="mt-1 text-[0.9375rem] text-muted">{t.dashboard.prompt}</p>
+        <DashboardHero
+          greeting={`${greeting()}, ${firstName} \u{1F44B}`}
+          subtitle={t.dashboard.prompt}
+        />
 
         {/*
           A department waiting on an answer is the one thing here that blocks
@@ -136,24 +162,32 @@ export default async function DashboardPage() {
             value={summary.total}
             hint={summary.drafts > 0 ? `${summary.drafts} still a draft` : "All submitted"}
             icon={FileText}
+            tone="neutral"
+            href="/dashboard/reports"
           />
           <StatCard
             label="Reported"
             value={summary.reported}
             hint="Awaiting a department"
-            valueClassName="text-status-reported"
+            icon={TriangleAlert}
+            tone="danger"
+            href="/dashboard/reports"
           />
           <StatCard
             label="In process"
             value={summary.inProcess}
             hint="Being worked on"
-            valueClassName="text-status-process"
+            icon={Clock}
+            tone="warning"
+            href="/dashboard/reports"
           />
           <StatCard
             label="Resolved"
             value={summary.resolved}
             hint="Confirmed fixed"
-            emphasis
+            icon={CheckCircle2}
+            tone="success"
+            href="/dashboard/reports"
           />
         </div>
 
@@ -303,20 +337,34 @@ export default async function DashboardPage() {
           <Card className="mt-3 shadow-none">
             <CardBody className="p-4 sm:p-5">
               <CardEyebrow>{t.dashboard.commonIssues}</CardEyebrow>
-              <ul className="mt-3.5 grid grid-cols-4 gap-2">
-                {COMMON_ISSUES.map((issue) => {
-                  const Icon = issue.icon;
-                  return (
-                    <li key={issue.label} className="text-center">
-                      <span className="mx-auto flex size-11 items-center justify-center rounded-[14px] bg-canvas">
-                        <Icon className="size-5 text-civic-600" aria-hidden="true" />
+              {/*
+                Every tile opens the same /report flow the two buttons above
+                do — this is a faster way to SEE what is reportable, not a
+                shortcut past the camera step, which re-runs AI vision and
+                asks the citizen to confirm a category regardless of how they
+                got here. See the note on REPORT_CATEGORIES.
+              */}
+              <ul className="mt-3.5 grid grid-cols-3 gap-2 sm:grid-cols-6">
+                {REPORT_CATEGORIES.map(({ icon: Icon, tone, category }) => (
+                  <li key={category}>
+                    <Link
+                      href="/report"
+                      className="group flex flex-col items-center rounded-[14px] p-1.5 text-center transition-colors hover:bg-canvas"
+                    >
+                      <span
+                        className={cn(
+                          "mx-auto flex size-11 items-center justify-center rounded-[14px] transition-transform group-hover:scale-105",
+                          CATEGORY_TONE_BG[tone],
+                        )}
+                      >
+                        <Icon className="size-5" aria-hidden="true" />
                       </span>
-                      <span className="mt-2 block text-[0.6875rem] font-medium leading-tight text-muted">
-                        {issue.label}
+                      <span className="mt-2 block text-[0.6875rem] font-medium leading-tight text-ink">
+                        {t.report.categories[category]}
                       </span>
-                    </li>
-                  );
-                })}
+                    </Link>
+                  </li>
+                ))}
               </ul>
             </CardBody>
           </Card>

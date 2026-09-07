@@ -13,7 +13,9 @@
     "test": "node --import tsx --test tests/*.test.ts",
     "db:seed": "tsx scripts/seed.mts",
     "check:cnic": "tsx scripts/check-cnic.mts",
-    "check:ai": "tsx scripts/check-ai.mts"
+    "check:ai": "tsx scripts/check-ai.mts",
+    "dashboard:scan": "tsx code-dashboard/scan.mts",
+    "dashboard": "tsx code-dashboard/scan.mts && npx --yes serve -l 4321 code-dashboard"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.2.17",

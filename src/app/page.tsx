@@ -1,21 +1,24 @@
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   ArrowRight,
   BarChart3,
-  Building2,
-  CheckCircle2,
   Camera,
+  Globe,
   Layers,
-  ListChecks,
+  Leaf,
+  LogIn,
+  MapPin,
+  Megaphone,
   ShieldCheck,
   Sparkles,
+  UserPlus,
   Users,
 } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
-import { SiteHeader } from "@/components/landing/site-header";
-import { CivicSkyline, CrescentField } from "@/components/landing/pakistan-scene";
+import { HeroHeader } from "@/components/landing/hero-header";
 import { RevealGroup, RevealItem } from "@/components/landing/reveal";
 import { Button } from "@/components/ui/button";
 import { getSession } from "@/lib/session";
@@ -23,27 +26,49 @@ import { getSession } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 /*
- * The front door, for two very different audiences.
+ * The front door.
  *
- * CivicAI has a citizen half and an authority half, and someone arriving cold
- * has to be able to tell which is theirs in about a second. The split here is
- * about INTENT, not a second login system: both paths authenticate identically,
- * and where someone lands is decided by what their account actually is, never
- * by which button they pressed.
+ * A single full-bleed photograph of Pakistan's landmarks stands behind the
+ * whole hero, with the header floating transparently on top of it — the
+ * layout the reference design calls for, in place of the earlier two-column
+ * split between a citizen half and a large "Authority Operations Portal"
+ * panel.
  *
- * The two halves are deliberately given different visual temperature. The
- * citizen side is light, open and photographic; the authority side is a deep
- * green instrument panel. A citizen should never wonder whether the government
- * portal is meant for them, and an officer should recognise their own door
- * immediately.
+ * Authority access did not disappear; it moved. The reference shows it as a
+ * single compact button in the header ("Authority Sign In"), so that is what
+ * it is here too — see HeroHeader. Registering a NEW authority still has a
+ * real path (`/gov/onboarding`, built earlier), it is just no longer
+ * advertised from the hero at panel size; it is linked from the sign-in
+ * page itself instead, which is where somebody who does not yet have an
+ * account actually ends up looking for it.
  */
 
-/** The accountability chain, shown before sign-in because it IS the pitch. */
-const CHAIN = [
-  { icon: Building2, label: "Authority", detail: "CDA, WASA, LWMC" },
-  { icon: Users, label: "Departments", detail: "Roads, Water, Municipal" },
-  { icon: ListChecks, label: "Civic issues", detail: "Grouped from reports" },
-  { icon: CheckCircle2, label: "Resolution", detail: "On the public record" },
+/*
+ * The bottom bar's four claims, reusing exactly the ones this project
+ * already verified as true rather than the reference mockup's specific
+ * "100M+ Citizens" / "500+ Cities & Districts" figures.
+ *
+ * Those are the kind of concrete usage numbers a real government-adjacent
+ * platform cannot assert without a source, and CivicAI does not have
+ * anywhere near that user base yet. Reusing invented figures here would have
+ * been the app telling every citizen who opens it something false about how
+ * many people already trust it. The bar's VISUAL pattern — icon, bold value,
+ * a short label — is kept exactly; only the two fabricated headline numbers
+ * are replaced with claims this product can actually stand behind.
+ */
+/** The four feature chips under the hero buttons. Icon and label, nothing else. */
+const FEATURES = [
+  { icon: Leaf, label: "Cleaner Communities" },
+  { icon: ShieldCheck, label: "Safer Cities" },
+  { icon: Users, label: "Stronger Together" },
+  { icon: BarChart3, label: "Real Impact" },
+];
+
+const TRUST_BAR = [
+  { icon: MapPin, value: "Built for Pakistan", label: "Every city, every citizen" },
+  { icon: Sparkles, value: "Free", label: "Always, for citizens" },
+  { icon: Globe, value: "\u0627\u0631\u062f\u0648", label: "Report in your language" },
+  { icon: ShieldCheck, value: "Public", label: "Every outcome published" },
 ];
 
 const HOW_IT_WORKS = [
@@ -75,149 +100,176 @@ export default async function LandingPage() {
 
   return (
     <div className="flex min-h-full flex-col bg-canvas">
-      <SiteHeader />
+      {/*
+        -- Hero: one full-bleed photograph, the header floating on it --------
 
-      {/* -- Hero: citizen on the left, authority on the right ------------- */}
-      <section className="border-b border-line">
-        <div className="mx-auto grid max-w-7xl lg:grid-cols-[1.05fr_0.95fr]">
-          {/* Citizen half */}
-          <div className="relative flex flex-col overflow-hidden bg-surface px-5 pb-0 pt-10 sm:px-8 sm:pt-14 lg:pt-20">
-            <CrescentField className="pointer-events-none absolute -right-16 -top-16 size-72 text-civic-500/[0.07]" />
+        The photograph (Faisal Mosque, Minar-e-Pakistan, Lahore Fort,
+        Mazar-e-Quaid, the northern mountains and the flag) is a supplied
+        background ASSET, not something rebuilt in CSS — it is placed once,
+        with `object-fit: cover`, and never redrawn.
 
-            <RevealGroup immediate className="relative max-w-xl">
-              <RevealItem as="span" className="inline-flex items-center gap-2 rounded-full border border-civic-200 bg-civic-50 px-3 py-1 text-[0.75rem] font-semibold text-civic-700">
-                <ShieldCheck className="size-3.5" aria-hidden="true" />
-                For every citizen of Pakistan
+        The section has no fixed height of its own. `min-h-*` is set on the
+        CONTENT column below, and the background `fill` image simply covers
+        whatever height that content ends up requiring at each breakpoint —
+        which is what keeps this responsive without a hand-tuned height per
+        device: shrink the viewport, the content column shrinks with it, and
+        the photograph crops to match rather than stretching or leaving a
+        gap.
+      */}
+      <section className="relative overflow-hidden border-b border-line">
+        {/*
+          Two different photographs, not one photograph cropped two ways.
+          The landscape shot has a wide band of monuments across a short
+          strip; a phone screen is the opposite shape, so cropping it for
+          mobile meant showing mostly empty sky above a sliver of skyline. A
+          photograph actually composed in portrait — flag top-right, sky
+          falling away to mountains, the monuments and their reflection
+          filling the lower half — fills that shape properly instead of
+          being squeezed into it. `sm:hidden` / `hidden sm:block` swap them
+          at the same breakpoint the rest of this hero already uses.
+        */}
+        <Image
+          src="/pakistan-hero-bg-mobile.webp"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="object-cover object-[center_82%] sm:hidden"
+        />
+        <Image
+          src="/pakistan-hero-bg.webp"
+          alt=""
+          fill
+          priority
+          sizes="100vw"
+          className="hidden object-cover object-[center_92%] sm:block"
+        />
+
+        {/*
+          A very light, one-directional wash — not a panel. It exists purely
+          so the darkest heading text still clears contrast over the palest
+          part of the sky; at 0.35 opacity the mountains and skyline behind it
+          stay fully visible, which a solid card never would.
+        */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 bg-gradient-to-r from-white/60 via-white/20 to-transparent sm:from-white/50"
+        />
+
+        <div className="relative z-10">
+          <HeroHeader />
+
+          <div className="relative mx-auto w-full max-w-7xl min-h-[26rem] px-5 pb-10 pt-2 sm:min-h-[30rem] sm:px-8 sm:pb-12 lg:min-h-[36rem]">
+            <RevealGroup immediate className="max-w-xl">
+              <RevealItem className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.75rem] font-bold uppercase tracking-[0.14em]">
+                <span className="inline-flex items-center gap-1.5 text-civic-700">
+                  <ShieldCheck className="size-3.5" aria-hidden="true" />
+                  For Citizens
+                </span>
+                <span className="text-ink/25">|</span>
+                <span className="text-ink/55">Cleaner Cities</span>
+                <span className="text-ink/25">|</span>
+                <span className="text-ink/55">Stronger Pakistan</span>
               </RevealItem>
 
-              <RevealItem><h1 className="mt-5 text-[2.25rem] font-bold leading-[1.05] tracking-tight text-ink sm:text-[2.75rem] lg:text-[3.25rem]">
-                Your voice.
-                <br />
-                Your city.
-                <br />
-                <span className="text-civic-600">Your CivicAI.</span>
-              </h1></RevealItem>
+              <RevealItem>
+                <h1 className="mt-4 text-[2.25rem] font-bold leading-[1.05] tracking-[-0.03em] text-ink sm:text-[2.75rem] lg:text-[3.25rem]">
+                  Your Voice.
+                  <br />
+                  Your City.
+                  <br />
+                  Your <span className="text-civic-600">CivicAI.</span>
+                </h1>
+              </RevealItem>
 
-              <RevealItem><p className="mt-5 max-w-md text-[1.0625rem] leading-relaxed text-muted">
-                Report a broken street light, a pothole, a water leak. We send it to
-                the department responsible and show you exactly what happens next.
-              </p></RevealItem>
+              <RevealItem>
+                <p className="mt-5 max-w-md text-[1.0625rem] leading-relaxed text-ink/70">
+                  Report issues, track progress, and be part of the change.
+                  Together, let&rsquo;s build cleaner, safer and better
+                  communities across Pakistan.
+                </p>
+              </RevealItem>
 
               <RevealItem className="mt-7 flex flex-wrap gap-2.5">
-                <Button asChild size="default" className="px-6">
+                <Button asChild className="px-6 shadow-lg">
                   <Link href="/register">
-                    Report a problem
+                    <Megaphone className="size-4" aria-hidden="true" />
+                    Report a Problem
                     <ArrowRight className="size-4" aria-hidden="true" />
                   </Link>
                 </Button>
-                <Button asChild variant="secondary">
-                  <Link href="/register">Sign up</Link>
+                <Button
+                  asChild
+                  variant="outline"
+                  className="border-civic-600 bg-surface/90 px-6 shadow-sm backdrop-blur"
+                >
+                  <Link href="/auth/sign-up">
+                    <UserPlus className="size-4" aria-hidden="true" />
+                    Sign Up
+                  </Link>
                 </Button>
-                <Button asChild variant="ghost">
-                  <Link href="/auth/sign-in">Sign in</Link>
+                <Button asChild variant="ink" className="px-6 shadow-lg">
+                  <Link href="/auth/sign-in">
+                    <LogIn className="size-4" aria-hidden="true" />
+                    Sign In
+                  </Link>
                 </Button>
               </RevealItem>
 
-              <dl className="mt-9 flex flex-wrap gap-x-8 gap-y-3 border-t border-line pt-6">
-                {[
-                  { value: "Free", label: "Always, for citizens" },
-                  { value: "اردو", label: "Report in your language" },
-                  { value: "Public", label: "Every outcome published" },
-                ].map((item) => (
-                  <div key={item.label}>
-                    <dt className="text-[1.125rem] font-bold tracking-tight text-ink">
-                      {item.value}
-                    </dt>
-                    <dd className="text-[0.8125rem] text-muted">{item.label}</dd>
-                  </div>
-                ))}
-              </dl>
-            </RevealGroup>
-
-            {/*
-              The skyline anchors the hero to the ground rather than floating.
-              mt-auto keeps it welded to the bottom edge whatever the column
-              height turns out to be.
-            */}
-            <CivicSkyline className="relative -mx-5 mt-auto block h-24 w-[calc(100%+2.5rem)] text-civic-600 sm:-mx-8 sm:w-[calc(100%+4rem)]" />
-          </div>
-
-          {/* Authority half */}
-          <div
-            id="for-authorities"
-            className="relative overflow-hidden bg-civic-900 px-5 py-10 text-white sm:px-8 sm:py-14 lg:py-20"
-          >
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute -bottom-24 -right-24 size-80 rounded-full bg-civic-500/25 blur-3xl"
-            />
-
-            <div className="relative max-w-md">
-              <span className="text-[0.6875rem] font-bold uppercase tracking-[0.16em] text-civic-200">
-                Restricted access
-              </span>
-
-              <h2 className="mt-3 text-[1.75rem] font-bold leading-tight tracking-tight sm:text-[2rem]">
-                Authority Operations Portal
-              </h2>
-
-              <p className="mt-3 text-[0.9375rem] leading-relaxed text-white/70">
-                Secure access for authorised civic departments and government teams.
-                Accounts are issued by your authority&rsquo;s administrator — never
-                self-registered.
-              </p>
-
-              <div className="mt-6 flex flex-wrap gap-2.5">
-                <Button
-                  asChild
-                  className="bg-civic-200 px-6 text-civic-900 hover:bg-white"
-                >
-                  <Link href="/gov/login">
-                    Authority sign in
-                    <ArrowRight className="size-4" aria-hidden="true" />
-                  </Link>
-                </Button>
-                <Button
-                  asChild
-                  variant="secondary"
-                  className="border-white/25 bg-transparent text-white hover:border-white/50 hover:bg-white/10"
-                >
-                  <Link href="/gov/login">Redeem an invitation</Link>
-                </Button>
-              </div>
-
-              <p className="mt-10 text-[0.6875rem] font-bold uppercase tracking-[0.16em] text-white/40">
-                Chain of accountability
-              </p>
-
-              <ol className="mt-3 space-y-2">
-                {CHAIN.map((step, index) => {
-                  const Icon = step.icon;
-                  const isLast = index === CHAIN.length - 1;
-
+              <RevealItem className="mt-8 flex flex-wrap gap-x-4 gap-y-4 sm:gap-x-7">
+                {FEATURES.map((feature) => {
+                  const Icon = feature.icon;
                   return (
-                    <li
-                      key={step.label}
-                      className={`flex items-center gap-3 rounded-[var(--radius-field)] border px-3.5 py-2.5 ${
-                        isLast
-                          ? "border-civic-500/60 bg-civic-500/15"
-                          : "border-white/12 bg-white/[0.06]"
-                      }`}
+                    <div
+                      key={feature.label}
+                      className="flex w-16 flex-col items-center text-center sm:w-20"
                     >
-                      <Icon className="size-4 shrink-0 text-civic-200" aria-hidden="true" />
-                      <span className="text-[0.875rem] font-semibold">{step.label}</span>
-                      <span className="ms-auto text-[0.75rem] text-white/50">{step.detail}</span>
-                    </li>
+                      <span className="grid size-11 place-items-center rounded-2xl bg-civic-50/90 text-civic-700 shadow-sm backdrop-blur">
+                        <Icon className="size-5" aria-hidden="true" />
+                      </span>
+                      <span className="mt-2 text-[0.75rem] font-semibold leading-snug text-ink">
+                        {feature.label}
+                      </span>
+                    </div>
                   );
                 })}
-              </ol>
-            </div>
+              </RevealItem>
+            </RevealGroup>
+
+          </div>
+
+          {/*
+            The trust bar, full-bleed — a plain sibling of the content
+            column rather than something inside it, so it can span edge to
+            edge the way the reference shows it instead of stopping at the
+            same max-w-7xl margins as the text above. It needs no `mt-auto`
+            or absolute positioning: it simply comes last in flow, which is
+            what keeps it at the true bottom of the section at any height.
+          */}
+          <div className="relative w-full bg-civic-900/85 px-5 py-4 text-white shadow-xl backdrop-blur-sm sm:px-8">
+            <dl className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-8 gap-y-4">
+              {TRUST_BAR.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <div key={item.label} className="flex items-center gap-2.5">
+                    <Icon className="size-4 shrink-0 text-civic-200" aria-hidden="true" />
+                    <div className="leading-tight">
+                      <dt className="text-[0.9375rem] font-bold">{item.value}</dt>
+                      <dd className="text-[0.6875rem] text-white/65">{item.label}</dd>
+                    </div>
+                  </div>
+                );
+              })}
+              <div className="ms-auto hidden max-w-[15rem] text-right text-[0.8125rem] italic leading-snug text-white/80 sm:block">
+                &ldquo;Together for a Brighter Pakistan&rdquo;
+              </div>
+            </dl>
           </div>
         </div>
       </section>
 
-      {/* -- How it works -------------------------------------------------- */}
-      <section id="how-it-works" className="mx-auto w-full max-w-7xl px-5 py-14 sm:px-8 sm:py-20">
+{/* -- How it works -------------------------------------------------- */}
+      <section id="about" className="mx-auto w-full max-w-7xl px-5 py-14 sm:px-8 sm:py-20">
         <div className="max-w-2xl">
           <span className="text-[0.6875rem] font-bold uppercase tracking-[0.16em] text-civic-700">
             How it works

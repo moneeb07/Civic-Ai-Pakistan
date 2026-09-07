@@ -229,31 +229,110 @@ describe("NEGATIVE — unreadable images are refused", () => {
     assert.equal(result.state, "NEEDS_IMPROVEMENT");
   });
 
-  it("never accepts anything scoring below the acceptance bar", () => {
-    // Property check across a spread of degraded photographs.
+  it("refuses on the model's confidence when it gave no field breakdown", () => {
+    /*
+     * With no per-field answer, the summary number is the only evidence there
+     * is, so it has to carry the full bar by itself.
+     */
+    const result = validateCnic({
+      expectedSide: "front",
+      signals: null,
+      vision: goodVision({ confidence: 0.7, fieldConfidence: {} }),
+    });
+
+    assert.equal(result.state, "NEEDS_IMPROVEMENT");
+  });
+
+  /*
+   * THE POLICY CHANGE, pinned as a property.
+   *
+   * Local pixel heuristics measure a live video frame against synthetic test
+   * patterns. A real hand-held CNIC under a bulb scores badly on tilt, glare
+   * and sharpness while remaining perfectly legible to the model — and the
+   * model is the only thing here that can actually read a card. So once a
+   * photograph exists, no combination of bad pixel signals may overturn a
+   * confident read. Pixels choose WHEN to ask; the model decides the answer.
+   */
+  it("never lets bad pixel signals overturn a confident read", () => {
     const degradations: Partial<QualitySignals>[] = [
       { sharpness: 0.1 },
       { completeness: 0.2 },
       { documentConfidence: 0.1 },
       { lighting: 0.1 },
       { glareFree: 0.05 },
+      { perspective: 0.05 },
       { sharpness: 0.4, lighting: 0.4, glareFree: 0.4 },
+      { sharpness: 0, completeness: 0, documentConfidence: 0 },
     ];
 
     for (const degradation of degradations) {
-      const signals = goodSignals(degradation);
       const result = validateCnic({
         expectedSide: "front",
-        signals,
-        vision: goodVision({ confidence: 0.6 }),
+        signals: goodSignals(degradation),
+        vision: goodVision(),
       });
 
-      if (result.state === "READABLE") {
-        assert.fail(
-          `accepted a degraded image (${JSON.stringify(degradation)}) at score ${result.score}`,
-        );
-      }
+      assert.equal(
+        result.state,
+        "READABLE",
+        `pixels vetoed a readable card (${JSON.stringify(degradation)}) at score ${result.score}`,
+      );
     }
+  });
+
+  it("gives an identical verdict with and without pixel signals", () => {
+    // The strongest statement of the rule: signals are not an input to it.
+    const vision = goodVision({ confidence: 0.88 });
+    const withSignals = validateCnic({
+      expectedSide: "front",
+      signals: goodSignals({ sharpness: 0.1, glareFree: 0.05 }),
+      vision,
+    });
+    const without = validateCnic({ expectedSide: "front", signals: null, vision });
+
+    assert.equal(withSignals.state, without.state);
+    assert.equal(withSignals.score, without.score);
+    assert.equal(withSignals.instruction, without.instruction);
+  });
+
+  it("names the field it could not read, when the model reports no other fault", () => {
+    /*
+     * The case only the citizen can fix, because only they can see it: a
+     * thumb over the CNIC number. The model reports no blur, no glare, no
+     * crop and no tilt — nothing to advise about the camera — so the only
+     * useful thing left to say is WHICH line came back illegible.
+     */
+    const result = validateCnic({
+      expectedSide: "front",
+      signals: null,
+      vision: goodVision({
+        fieldConfidence: {
+          cnicNumber: 0.2,
+          name: 0.95,
+          fatherOrHusbandName: 0.94,
+          dateOfBirth: 0.93,
+        },
+      }),
+    });
+
+    assert.equal(result.state, "NEEDS_IMPROVEMENT");
+    assert.deepEqual(result.unreadableFields, ["cnicNumber"]);
+    assert.match(result.instruction, /CNIC number/i);
+    assert.match(result.instruction, /covering|clear/i);
+  });
+
+  it("lists several unreadable fields readably", () => {
+    const result = validateCnic({
+      expectedSide: "front",
+      signals: null,
+      vision: goodVision({
+        fieldConfidence: { cnicNumber: 0.1, name: 0.2, fatherOrHusbandName: 0.1, dateOfBirth: 0.9 },
+      }),
+    });
+
+    // "the CNIC number, name and father's or husband's name" — not an array dump.
+    assert.match(result.instruction, /CNIC number, name and father/i);
+    assert.doesNotMatch(result.instruction, /[[\]{}"]/, "no raw field keys leak into the copy");
   });
 
   it("always names something the citizen can physically do", () => {
@@ -457,20 +536,20 @@ describe("REGRESSION — an upload must not be judged by the camera's last frame
     completeness: 0.1,
   };
 
-  it("refuses the good image when stale camera signals are attached", () => {
-    // The bug, pinned: identical vision result, ruined by borrowed pixels.
+  it("accepts the good image even when stale camera signals are attached", () => {
+    /*
+     * This used to be the bug — identical vision result, ruined by borrowed
+     * pixels — and it was worked around by not sending signals for uploads.
+     * Now it cannot happen by construction: signals carry no vote, so a stale
+     * frame from a camera the citizen already abandoned is harmless.
+     */
     const result = validateCnic({
       expectedSide: "front",
       signals: staleCameraSignals,
       vision: goodVision(),
     });
 
-    assert.notEqual(result.state, "READABLE");
-    assert.match(
-      result.instruction,
-      /closer|frame|steady/i,
-      "and it advises the camera, on an upload",
-    );
+    assert.equal(result.state, "READABLE");
   });
 
   it("accepts the same image when it is judged as an upload, with no signals", () => {

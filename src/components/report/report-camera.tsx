@@ -1,7 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { Camera, CircleAlert, ImageUp, RotateCcw } from "lucide-react";
+import Image from "next/image";
+import {
+  Camera,
+  Circle,
+  CircleAlert,
+  Droplets,
+  ImageUp,
+  Lightbulb,
+  RotateCcw,
+  Sun,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { getDictionary } from "@/lib/i18n";
@@ -10,6 +22,43 @@ import { prepareReportImage } from "@/lib/image";
 const t = getDictionary();
 
 type CameraState = "idle" | "starting" | "live" | "denied" | "unavailable";
+
+/** The three tips beside the illustration. Icon, a real dictionary title, a real dictionary body. */
+const TIPS = [
+  { icon: Camera, title: t.report.tipDownTitle, body: t.report.tipDownBody },
+  { icon: Circle, title: t.report.tipCenteredTitle, body: t.report.tipCenteredBody },
+  { icon: Sun, title: t.report.tipLightingTitle, body: t.report.tipLightingBody },
+];
+
+/*
+ * The four examples under "Common issues you can report".
+ *
+ * `photo` is deliberately optional and currently unset for all four: this
+ * section is designed for real photographs of each issue, supplied as
+ * assets, and none has been added to the project yet. Until one exists for
+ * a category, that tile falls back to the same tinted icon chip already
+ * used for this exact set of categories on the citizen dashboard — a real,
+ * shipped fallback, not a placeholder image inventing a photo that isn't
+ * there. Drop a file at the path in `photo` and the tile switches to it
+ * automatically, no other change needed.
+ */
+const ISSUE_EXAMPLES: {
+  category: "POTHOLE" | "GARBAGE" | "BROKEN_STREETLIGHT" | "WATER_LEAKAGE";
+  icon: React.ComponentType<{ className?: string }>;
+  tone: "warning" | "success" | "warning" | "neutral";
+  photo?: string;
+}[] = [
+  { category: "POTHOLE", icon: TriangleAlert, tone: "warning" },
+  { category: "GARBAGE", icon: Trash2, tone: "success" },
+  { category: "BROKEN_STREETLIGHT", icon: Lightbulb, tone: "warning" },
+  { category: "WATER_LEAKAGE", icon: Droplets, tone: "neutral" },
+];
+
+const TONE_BG: Record<string, string> = {
+  success: "bg-status-resolved-bg text-status-resolved",
+  warning: "bg-status-process-bg text-status-process",
+  neutral: "bg-civic-50 text-civic-700",
+};
 
 /*
  * A plain point-and-shoot camera for photographing a civic problem.
@@ -202,10 +251,80 @@ export function ReportCamera({
         </div>
       ) : null}
 
-      <div className="rounded-[20px] border-2 border-dashed border-line-strong bg-surface p-10">
-        <div className="text-center">
-          <Camera className="mx-auto size-10 text-civic-500" aria-hidden="true" />
-          <p className="mt-3 text-[0.875rem] font-medium text-muted">{t.report.cameraTitle}</p>
+      {/*
+        The instructional card. The heading above this component already says
+        WHAT to do ("Point your camera at the problem"); this card is HOW —
+        an illustration of the exact gesture, the three things that make a
+        photo usable, and a reminder of what counts as reportable. A citizen
+        should be able to act from the picture alone, without reading a word
+        of the text beside it.
+      */}
+      <div className="rounded-[24px] border-2 border-dashed border-line-strong bg-surface p-5 sm:p-8">
+        <div className="grid gap-6 sm:grid-cols-[minmax(0,0.85fr)_minmax(0,1fr)] sm:items-center sm:gap-8">
+          <div className="mx-auto w-full max-w-[240px] sm:max-w-none sm:max-h-[360px]">
+            <Image
+              src="/report-camera-illustration.webp"
+              alt="Two hands holding a phone, camera aimed at a pothole in the road, framed and ready to photograph"
+              width={900}
+              height={1125}
+              className="mx-auto h-auto max-h-[360px] w-full object-contain"
+              priority
+            />
+          </div>
+
+          <ul className="space-y-4">
+            {TIPS.map((tip) => {
+              const Icon = tip.icon;
+              return (
+                <li key={tip.title} className="flex items-start gap-3">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-full bg-civic-100 text-civic-700">
+                    <Icon className="size-4.5" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[0.9375rem] font-semibold text-ink">{tip.title}</p>
+                    <p className="mt-0.5 text-[0.8125rem] leading-relaxed text-muted">{tip.body}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        <div className="mt-6 border-t border-line pt-5 sm:mt-8 sm:pt-6">
+          <p className="text-[0.8125rem] font-semibold text-ink">{t.report.commonIssuesPrompt}</p>
+
+          <ul className="mt-3.5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {ISSUE_EXAMPLES.map((example) => {
+              const Icon = example.icon;
+              const label = t.report.categories[example.category];
+              return (
+                <li key={example.category}>
+                  <div className="overflow-hidden rounded-[14px] border border-line bg-canvas">
+                    <div className="relative aspect-square">
+                      {example.photo ? (
+                        <Image
+                          src={example.photo}
+                          alt={label}
+                          fill
+                          sizes="140px"
+                          className="object-cover"
+                        />
+                      ) : (
+                        <div
+                          className={`flex size-full items-center justify-center ${TONE_BG[example.tone]}`}
+                        >
+                          <Icon className="size-7" aria-hidden="true" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-center text-[0.75rem] font-medium leading-tight text-ink">
+                    {label}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       </div>
 

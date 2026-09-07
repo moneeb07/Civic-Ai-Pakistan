@@ -21,7 +21,7 @@ export default async function ReportCameraPage({
   if (!report) notFound();
 
   return (
-    <ReportShell step="camera" backHref="/dashboard">
+    <ReportShell step="camera" backHref="/dashboard" wide>
       <CameraFlow reportId={id} />
     </ReportShell>
   );

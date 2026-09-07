@@ -16,11 +16,23 @@ const buttonVariants = cva(
         secondary:
           "border border-line-strong bg-surface text-ink hover:bg-civic-50 hover:border-civic-200 active:bg-civic-100",
         ghost: "text-civic-600 hover:bg-civic-50 active:bg-civic-100",
+        /*
+         * The near-black button, for the secondary actions that sit beside a
+         * green primary on the landing hero. A second green button there would
+         * make the reader choose between two things of equal weight; ink reads
+         * as "also available" without shouting.
+         */
+        ink: "bg-ink text-white hover:bg-slate-deep active:bg-slate-deep shadow-[var(--shadow-field)]",
+        /* Green outline on white — the authority side's secondary door. */
+        outline:
+          "border-[1.5px] border-civic-600 bg-surface text-civic-700 hover:bg-civic-50 active:bg-civic-100",
         danger: "bg-danger text-white hover:opacity-90",
       },
       size: {
         default: "px-5 py-3",
         full: "w-full px-5 py-3",
+        /* The compact pill the transparent hero header's own CTAs use. */
+        sm: "min-h-9 px-4 py-2 text-[0.8125rem]",
       },
     },
     defaultVariants: {

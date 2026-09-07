@@ -10,7 +10,7 @@ export default async function IdentityPage() {
   if (await getSession()) redirect("/dashboard");
 
   return (
-    <RegistrationShell step="identity" backHref="/auth/sign-in">
+    <RegistrationShell step="identity" backHref="/auth/sign-in" wide>
       <IdentityFlow />
     </RegistrationShell>
   );

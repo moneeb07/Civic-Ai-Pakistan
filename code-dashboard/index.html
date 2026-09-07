@@ -1,0 +1,1022 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CivicAI · Code Architecture Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Sans+3:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* ==========================================================================
+   CivicAI · Code Architecture Dashboard
+   Layout follows the supplied reference; every value shown is read from
+   architecture.json, which scan.mts produces from the real source.
+   ========================================================================== */
+:root{
+  --bg:#eef2f1; --panel:#fff; --sunken:#f4f7f6; --ink:#0f1f1a; --muted:#66766f;
+  --line:#e2eae6; --line-2:#cddbd4; --accent:#0f7a52; --accent-soft:#e8f5ef;
+  --shadow:0 1px 2px rgba(15,31,26,.04),0 10px 28px -18px rgba(15,31,26,.22);
+  --frontend:#1f9d63; --api:#2f6fdc; --ai:#8250d8; --database:#d08214;
+  --auth:#0d8a7d; --gov:#c2551f; --lib:#5b6b8a; --config:#6b7a74; --test:#8a8f6b;
+  --external:#d64545; --comm:#d6438f;
+  --dark-panel:#0d1526; --dark-2:#141f36; --dark-line:#22304d; --dark-ink:#e6ecf7;
+}
+html[data-theme="dark"]{
+  --bg:#080f0d; --panel:#101b17; --sunken:#152420; --ink:#e7f0ec; --muted:#8ba099;
+  --line:#1e332c; --line-2:#2b463c; --accent:#45c79c; --accent-soft:#12302a;
+  --shadow:0 1px 2px rgba(0,0,0,.5),0 10px 28px -18px rgba(0,0,0,.8);
+  --frontend:#4ecf90; --api:#6aa6ff; --ai:#b18cf5; --database:#e6a94a;
+  --auth:#4fd3bf; --gov:#f0885c; --lib:#9fb3d9; --config:#93a49d; --test:#c3c98f;
+  --external:#f28b86; --comm:#f07ab8;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Source Sans 3",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.mono{font-family:"JetBrains Mono",monospace}
+
+/* -- Masthead ---------------------------------------------------------- */
+.masthead{display:grid;grid-template-columns:300px 1fr auto;gap:18px;align-items:center;
+  background:var(--panel);border-bottom:1px solid var(--line);padding:14px 20px}
+.brandbox{display:flex;flex-direction:column;gap:6px}
+.brandrow{display:flex;align-items:center;gap:11px}
+.mark{width:40px;height:40px;border-radius:12px;background:var(--accent);display:grid;place-items:center;flex:none}
+.brandrow b{font-family:Archivo,sans-serif;font-size:21px;font-weight:800;letter-spacing:-.02em;color:var(--accent);display:block;line-height:1}
+.brandrow span{font-size:12px;color:var(--muted)}
+.tagline{font-family:Archivo,sans-serif;font-size:13.5px;font-weight:700}
+.taglinesub{font-size:11.5px;color:var(--muted);line-height:1.45}
+.banner{height:86px;border-radius:12px;overflow:hidden;position:relative;background:linear-gradient(90deg,#0b6b45,#0f8a58 45%,#e9f3ee)}
+.controls{display:flex;gap:22px;align-items:flex-start}
+.ctlgroup{display:flex;flex-direction:column;gap:6px}
+.ctllabel{font-size:9.5px;font-weight:700;letter-spacing:.16em;color:var(--muted)}
+.seg{display:flex;gap:4px;background:var(--sunken);border:1px solid var(--line);border-radius:10px;padding:4px}
+.seg button{display:flex;align-items:center;gap:6px;padding:7px 13px;border-radius:7px;font-size:12.5px;font-weight:600;color:var(--muted);white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+html[data-theme="dark"] .seg button[aria-pressed="true"]{color:#08120f}
+.seg .k{width:15px;height:15px;border-radius:4px;background:rgba(255,255,255,.25);display:grid;place-items:center;font:700 9px/1 "JetBrains Mono",monospace}
+.seg button[aria-pressed="false"] .k{background:var(--line-2);color:var(--muted)}
+
+/* -- Shell -------------------------------------------------------------- */
+.shell{display:grid;grid-template-columns:196px 1fr;gap:0;align-items:start}
+.rail{background:var(--panel);border-right:1px solid var(--line);padding:12px 10px;position:sticky;top:0;height:100vh;overflow-y:auto}
+.railgroup{font-size:9px;font-weight:700;letter-spacing:.15em;color:var(--muted);padding:14px 8px 5px}
+.nav{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:7px 9px;border-radius:8px;font-size:12.5px;font-weight:500;color:var(--muted)}
+.nav:hover{background:var(--sunken);color:var(--ink)}
+.nav[aria-current="true"]{background:var(--accent);color:#fff;font-weight:600}
+html[data-theme="dark"] .nav[aria-current="true"]{color:#08120f}
+.nav .ic{width:14px;height:14px;flex:none;opacity:.85}
+.nav .n{margin-left:auto;font:10px/1 "JetBrains Mono",monospace;opacity:.75}
+.status{margin-top:14px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--sunken)}
+.status b{display:flex;align-items:center;gap:6px;font-size:11.5px}
+.status i{width:7px;height:7px;border-radius:50%;background:var(--frontend);display:block}
+.status span{display:block;font-size:10.5px;color:var(--muted);margin-top:3px}
+
+.canvas{padding:14px;display:grid;gap:14px;min-width:0}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:14px;align-items:start}
+.grid-bottom{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start}
+@media(max-width:1500px){.grid2{grid-template-columns:1fr}.grid-bottom{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:1000px){.grid-bottom{grid-template-columns:1fr}.shell{grid-template-columns:1fr}.rail{display:none}.masthead{grid-template-columns:1fr}}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+.card h2{display:flex;align-items:center;gap:8px;margin:0;padding:12px 15px 0;font-family:Archivo,sans-serif;font-size:13px;font-weight:700;letter-spacing:.02em}
+.card .sub{margin:2px 15px 0;font-size:11.5px;color:var(--muted)}
+.card .pad{padding:14px 15px 15px}
+.badge{margin-left:auto;font:10px/1 "JetBrains Mono",monospace;color:var(--muted);background:var(--sunken);border:1px solid var(--line);padding:3px 7px;border-radius:6px}
+
+/* -- Big picture rail --------------------------------------------------- */
+.stagerow{display:flex;gap:0;align-items:flex-start;overflow-x:auto;padding:4px 2px 8px}
+.stagecell{display:flex;align-items:flex-start;flex:none}
+.stage{width:118px;text-align:center;padding:4px 6px;border-radius:10px}
+.stage:hover{background:var(--sunken)}
+.stage .bub{width:34px;height:34px;margin:0 auto;border-radius:50%;background:var(--l);color:#fff;display:grid;place-items:center;font:700 13px/1 "JetBrains Mono",monospace;box-shadow:0 0 0 4px color-mix(in srgb,var(--l) 16%,transparent)}
+html[data-theme="dark"] .stage .bub{color:#08120f}
+.stage h3{margin:8px 0 0;font-family:Archivo,sans-serif;font-size:12px;font-weight:700;line-height:1.25}
+.stage p{margin:3px 0 0;font-size:10.5px;color:var(--muted);line-height:1.35}
+.stagearrow{width:22px;height:34px;display:grid;place-items:center;color:var(--line-2);flex:none}
+
+/* -- Architecture overview (always dark, like the reference) ------------- */
+.archdark{background:var(--dark-panel);border:1px solid var(--dark-line);border-radius:14px;color:var(--dark-ink);padding:14px 15px;position:relative;overflow:hidden}
+.archdark h2{color:var(--dark-ink);padding:0}
+.archdark .sub{margin:2px 0 0;color:#8fa0bd}
+.archgrid{display:grid;grid-template-columns:1fr 128px 1fr;gap:10px;align-items:center;margin-top:14px}
+.modbox{border:1px solid var(--mc);border-radius:10px;padding:9px 11px;background:color-mix(in srgb,var(--mc) 9%,transparent)}
+.modbox h4{margin:0 0 6px;font:700 10px/1 Archivo,sans-serif;letter-spacing:.12em;color:var(--mc)}
+.modbox button{display:flex;align-items:center;gap:6px;width:100%;text-align:left;font-size:11px;color:#c9d6ea;padding:2px 0}
+.modbox button:hover{color:#fff}
+.modbox .d{width:5px;height:5px;border-radius:50%;background:var(--mc);flex:none}
+.modbox .c{margin-left:auto;font:10px/1 "JetBrains Mono",monospace;opacity:.65}
+.hex{width:112px;height:112px;margin:0 auto;display:grid;place-items:center;position:relative}
+.hex svg{position:absolute;inset:0}
+.hex span{position:relative;font-family:Archivo,sans-serif;font-weight:800;font-size:14px;color:#fff}
+.extrow{margin-top:12px;border-top:1px solid var(--dark-line);padding-top:10px}
+.extrow h4{margin:0 0 7px;font:700 9.5px/1 Archivo,sans-serif;letter-spacing:.14em;color:#8fa0bd;text-align:center}
+.extchips{display:flex;gap:7px;flex-wrap:wrap;justify-content:center}
+.extchip{border:1px solid var(--dark-line);background:var(--dark-2);border-radius:8px;padding:5px 10px;font-size:10.5px;color:#c9d6ea;display:flex;align-items:center;gap:5px}
+
+/* -- Code flow graph ---------------------------------------------------- */
+.flowwrap{display:grid;grid-template-columns:160px 1fr;gap:12px}
+.legend h4,.ctls h4{margin:0 0 6px;font:700 9.5px/1 Archivo,sans-serif;letter-spacing:.13em;color:var(--muted)}
+.legend button{display:flex;align-items:center;gap:7px;width:100%;text-align:left;padding:5px 8px;border:1px solid var(--line);border-radius:7px;font-size:10.5px;margin-bottom:4px;background:var(--sunken)}
+.legend button[aria-pressed="true"]{border-color:var(--lc);background:color-mix(in srgb,var(--lc) 12%,transparent)}
+.legend .sw{width:9px;height:9px;border-radius:3px;background:var(--lc);flex:none}
+.ctls{margin-top:14px}
+.ctls button{display:flex;align-items:center;gap:7px;width:100%;text-align:left;padding:5px 8px;font-size:11px;color:var(--muted);border-radius:6px}
+.ctls button:hover{background:var(--sunken);color:var(--ink)}
+.viewport{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:
+  linear-gradient(var(--line) 1px,transparent 1px) 0 0/24px 24px,
+  linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/24px 24px, var(--sunken);
+  height:560px;cursor:grab;color:var(--ink)}
+.tall .viewport{height:720px}
+.viewport.dragging{cursor:grabbing}
+.world{position:absolute;top:0;left:0;transform-origin:0 0}
+.node{position:absolute;width:168px;height:46px;border:1.5px solid var(--nc);border-left-width:4px;
+  border-radius:8px;background:var(--panel);padding:6px 9px;cursor:pointer;user-select:none;
+  box-shadow:var(--shadow);overflow:hidden;transition:opacity .12s}
+.node:hover{box-shadow:0 0 0 3px color-mix(in srgb,var(--nc) 26%,transparent),var(--shadow)}
+.node.faded{opacity:.1;pointer-events:none}
+.node.focused{box-shadow:0 0 0 3px var(--nc),var(--shadow);z-index:5}
+.node b{display:block;font-size:11.5px;font-weight:700;color:var(--nc);line-height:1.25;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node span{display:block;font:9px/1.3 "JetBrains Mono",monospace;color:var(--muted);margin-top:2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.edges{position:absolute;top:0;left:0;pointer-events:none;overflow:visible}
+.edgekey{display:flex;align-items:center;gap:7px;font-size:10.5px;color:var(--muted);padding:2px 0}
+.scopesel{width:100%;padding:6px 8px;border:1px solid var(--line-2);border-radius:7px;
+  background:var(--panel);color:var(--ink);font:600 11px/1.3 "Source Sans 3",sans-serif}
+.focusbadge{position:absolute;left:8px;bottom:8px;font-size:10.5px;color:var(--muted);
+  background:var(--panel);border:1px solid var(--line);padding:4px 9px;border-radius:6px}
+.focusbadge b{color:var(--accent);font-family:"JetBrains Mono",monospace}
+.zoombadge{position:absolute;right:8px;bottom:8px;font:10px/1 "JetBrains Mono",monospace;color:var(--muted);background:var(--panel);border:1px solid var(--line);padding:4px 7px;border-radius:6px}
+
+/* -- Inspector ---------------------------------------------------------- */
+.insp .row{display:grid;grid-template-columns:76px 1fr;gap:4px 10px;font-size:11.5px;margin-bottom:9px}
+.insp dt{font:700 9px/1.5 Archivo,sans-serif;letter-spacing:.11em;color:var(--muted)}
+.insp dd{margin:0;word-break:break-word}
+.insp h5{margin:12px 0 5px;font:700 9px/1 Archivo,sans-serif;letter-spacing:.11em;color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;font:10.5px/1.4 "JetBrains Mono",monospace;
+  background:var(--sunken);border:1px solid var(--line);margin:0 3px 3px 0}
+.chip:hover{border-color:var(--accent)}
+.chip .d{width:6px;height:6px;border-radius:50%}
+.purpose{font-size:11.5px;line-height:1.5;color:var(--muted);background:var(--sunken);border-radius:8px;padding:9px 10px}
+.openfile{width:100%;margin-top:12px;background:var(--accent);color:#fff;border-radius:8px;padding:9px;font-size:12px;font-weight:700}
+html[data-theme="dark"] .openfile{color:#08120f}
+
+.trace{border-left:2px solid var(--line-2);margin-left:5px;padding-left:0}
+.tstep{display:flex;align-items:center;gap:7px;margin-left:-6px}
+.tstep button{font:10.5px/1.4 "JetBrains Mono",monospace;color:var(--ink);text-align:left}
+.tstep button:hover{color:var(--accent);text-decoration:underline}
+.tstep.me button{font-weight:700;color:var(--accent)}
+.tdot{width:9px;height:9px;border-radius:50%;flex:none;border:2px solid var(--panel)}
+.tkind{margin-left:auto;font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.tline{width:2px;height:12px;background:var(--line-2);margin-left:-1px}
+
+/* -- Tables ------------------------------------------------------------- */
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{text-align:left;font:700 8.5px/1 Archivo,sans-serif;letter-spacing:.11em;color:var(--muted);padding:0 6px 7px;border-bottom:1px solid var(--line-2)}
+td{padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+.meth{display:inline-block;min-width:38px;text-align:center;padding:1px 5px;border-radius:4px;font:700 8.5px/1.6 "JetBrains Mono",monospace;color:#fff}
+html[data-theme="dark"] .meth{color:#08120f}
+.m-GET{background:var(--api)}.m-POST{background:var(--frontend)}.m-PATCH{background:var(--database)}
+.m-PUT{background:var(--ai)}.m-DELETE{background:var(--gov)}
+.pill{font-size:9.5px;padding:1px 6px;border-radius:999px;background:var(--sunken);border:1px solid var(--line);color:var(--muted)}
+.scroll{max-height:250px;overflow:auto}
+.linkbtn{width:100%;margin-top:9px;border:1px solid var(--line-2);border-radius:8px;padding:7px;font-size:11px;font-weight:600;color:var(--accent)}
+.linkbtn:hover{background:var(--accent-soft)}
+
+/* -- ER boxes ----------------------------------------------------------- */
+.erwrap{display:flex;gap:8px;flex-wrap:wrap}
+.erbox{border:1px solid var(--database);border-radius:8px;min-width:104px;overflow:hidden;background:var(--panel)}
+.erbox b{display:block;background:color-mix(in srgb,var(--database) 14%,transparent);padding:4px 7px;font:700 10px/1.3 "JetBrains Mono",monospace;color:var(--database)}
+.erbox span{display:block;padding:1px 7px;font:9.5px/1.5 "JetBrains Mono",monospace;color:var(--muted)}
+.erbox span:last-child{padding-bottom:5px}
+
+/* -- Message / comms panel ---------------------------------------------- */
+.commdark{background:var(--dark-panel);border:1px solid var(--dark-line);color:var(--dark-ink)}
+.commdark h2,.commdark .sub{color:var(--dark-ink)}
+.commdark .sub{color:#8fa0bd}
+.msg{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--dark-line)}
+.msg:last-child{border-bottom:0}
+.av{width:26px;height:26px;border-radius:50%;background:var(--dark-2);border:1px solid var(--dark-line);display:grid;place-items:center;font:700 9px/1 Archivo,sans-serif;color:#c9d6ea;flex:none}
+.msg b{font-size:11px;color:#fff;display:block}
+.msg p{margin:1px 0 0;font-size:10.5px;color:#a9b8d0;line-height:1.4}
+.msg .t{margin-left:auto;font:9px/1 "JetBrains Mono",monospace;color:#6f80a0;flex:none}
+
+/* -- Footer ------------------------------------------------------------- */
+.foot{display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:14px}
+@media(max-width:1200px){.foot{grid-template-columns:1fr}}
+.foot .card{padding:12px 14px}
+.foot h4{margin:0 0 8px;font:700 9.5px/1 Archivo,sans-serif;letter-spacing:.13em;color:var(--muted)}
+.legrow{display:flex;flex-wrap:wrap;gap:12px;font-size:10.5px;color:var(--muted)}
+.legrow span{display:inline-flex;align-items:center;gap:6px}
+.howgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px 16px;font-size:10.5px;color:var(--muted)}
+.howgrid b{color:var(--accent);font-family:"JetBrains Mono",monospace}
+.keygrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;font-size:10.5px;color:var(--muted)}
+.keygrid span::before{content:"✓";color:var(--frontend);font-weight:700;margin-right:5px}
+
+/* -- Search ------------------------------------------------------------- */
+.searchwrap{position:relative;flex:1;min-width:150px;max-width:250px}
+.searchwrap input{width:100%;padding:7px 11px;border:1px solid var(--line-2);border-radius:8px;background:var(--panel);color:var(--ink);font-size:12px}
+.results{position:absolute;top:calc(100% + 5px);left:0;right:0;background:var(--panel);border:1px solid var(--line-2);border-radius:10px;box-shadow:var(--shadow);max-height:300px;overflow-y:auto;z-index:80}
+.results button{display:block;width:100%;text-align:left;padding:6px 10px;font-size:11.5px;border-bottom:1px solid var(--line)}
+.results button:hover{background:var(--sunken)}
+.results i{display:block;font:9.5px/1.3 "JetBrains Mono",monospace;color:var(--muted);font-style:normal}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="brandbox">
+    <div class="brandrow">
+      <span class="mark">
+        <svg width="22" height="22" viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M25 11a13 13 0 1 0 8.5 22.8A10.6 10.6 0 1 1 33.5 14 12.9 12.9 0 0 0 25 11Z" fill="#fff"/>
+          <path d="m35.6 18.6 1.2 2.7 2.9.3-2.2 2 .6 2.9-2.5-1.5-2.5 1.5.6-2.9-2.2-2 2.9-.3 1.2-2.7Z" fill="#fff"/>
+        </svg>
+      </span>
+      <span><b>CivicAI</b><span>Code Architecture Dashboard</span></span>
+    </div>
+    <div>
+      <div class="tagline">Understand. Visualize. Master.</div>
+      <div class="taglinesub">Explore the complete system flow, files, APIs,<br>database and real-time processes.</div>
+    </div>
+  </div>
+
+  <div class="banner" aria-hidden="true">
+    <svg viewBox="0 0 900 90" preserveAspectRatio="none" style="width:100%;height:100%">
+      <rect width="900" height="90" fill="#0d7a4f"/>
+      <rect width="240" height="90" fill="#f2f7f4"/>
+      <path d="M330 20a26 26 0 1 0 17 45.6A21.2 21.2 0 1 1 347 25.6 25.8 25.8 0 0 0 330 20Z" fill="#fff"/>
+      <path d="m372 32 2.4 5.4 5.9.6-4.4 4 1.2 5.8-5.1-3-5.1 3 1.2-5.8-4.4-4 5.9-.6L372 32Z" fill="#fff"/>
+      <g fill="rgba(255,255,255,.22)">
+        <path d="M470 90V56a17 17 0 0 1 34 0v34Z"/><rect x="485" y="34" width="3" height="12"/>
+        <path d="M540 90V46a24 24 0 0 1 48 0v44Z"/><rect x="562" y="16" width="4" height="16"/>
+        <path d="M620 90V60a15 15 0 0 1 30 0v30Z"/>
+        <path d="M690 90V50a22 22 0 0 1 44 0v40Z"/><rect x="710" y="22" width="4" height="16"/>
+        <rect x="770" y="52" width="40" height="38"/><rect x="820" y="42" width="26" height="48"/>
+        <rect x="856" y="60" width="34" height="30"/>
+      </g>
+      <rect y="84" width="900" height="6" fill="rgba(255,255,255,.35)"/>
+    </svg>
+  </div>
+
+  <div class="controls">
+    <div class="ctlgroup">
+      <span class="ctllabel">THEMES</span>
+      <div class="seg" role="group" aria-label="Theme">
+        <button id="theme-light" aria-pressed="true">☀ Light</button>
+        <button id="theme-dark" aria-pressed="false">🌙 Dark</button>
+      </div>
+    </div>
+    <div class="ctlgroup">
+      <span class="ctllabel">MODES</span>
+      <div class="seg" role="group" aria-label="Mode">
+        <button class="mode" data-mode="big" aria-pressed="true"><i class="k">1</i>Big Picture</button>
+        <button class="mode" data-mode="flow" aria-pressed="false"><i class="k">2</i>Code Flow</button>
+        <button class="mode" data-mode="inspect" aria-pressed="false"><i class="k">3</i>Inspect</button>
+      </div>
+    </div>
+    <div class="ctlgroup">
+      <span class="ctllabel">SEARCH</span>
+      <div class="searchwrap">
+        <input id="q" type="search" placeholder="Files, APIs, tables, env…" autocomplete="off" aria-label="Search">
+        <div class="results" id="results" hidden></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <aside class="rail" id="rail"></aside>
+  <main class="canvas" id="canvas"><div class="empty">Loading architecture…</div></main>
+</div>
+
+<script type="module">
+const LAYERS={frontend:"Frontend",api:"API Layer",ai:"AI Services",database:"Database",
+  auth:"Auth",gov:"Authority",lib:"Library",config:"Config",test:"Tests"};
+const col=(l)=>`var(--${l in LAYERS?l:"config"})`;
+const $=(id)=>document.getElementById(id);
+const esc=(s)=>String(s??"").replace(/[&<>"]/g,(c)=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const base=(p)=>p.split("/").pop();
+
+let D=null, mode="big", section="dashboard", layerFilter=null;
+
+/* -- Theme -------------------------------------------------------------- */
+const saved=(()=>{try{return localStorage.getItem("civicai-arch-theme")}catch{return null}})();
+if(saved) document.documentElement.dataset.theme=saved;
+function setTheme(t){
+  document.documentElement.dataset.theme=t;
+  $("theme-light").setAttribute("aria-pressed",String(t==="light"));
+  $("theme-dark").setAttribute("aria-pressed",String(t==="dark"));
+  try{localStorage.setItem("civicai-arch-theme",t)}catch{}
+}
+$("theme-light").onclick=()=>setTheme("light");
+$("theme-dark").onclick=()=>setTheme("dark");
+
+/* -- Rail ---------------------------------------------------------------- */
+const ICON={dash:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  flow:'<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M9 6h6a3 3 0 0 1 3 3v6"/>',
+  file:'<path d="M6 3h9l4 4v14H6z"/><path d="M9 12h7M9 16h5"/>',
+  api:'<path d="M4 7h16M4 12h16M4 17h10"/>',
+  db:'<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/>',
+  cube:'<path d="M12 2 3 7v10l9 5 9-5V7z"/>',
+  cog:'<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
+  msg:'<path d="M4 5h16v11H9l-5 4z"/>',
+  bell:'<path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/>'};
+const RAIL=[
+  {g:"OVERVIEW",items:[{id:"dashboard",label:"Dashboard",ic:"dash"}]},
+  {g:"ARCHITECTURE",items:[{id:"system",label:"System Flow",ic:"flow"},{id:"codeflow",label:"Code Flow",ic:"flow"},{id:"dataflow",label:"Data Flow",ic:"flow"}]},
+  {g:"EXPLORE",items:[{id:"files",label:"Files & Folders",ic:"file"},{id:"routes",label:"API Endpoints",ic:"api"},
+    {id:"tables",label:"Database",ic:"db"},{id:"components",label:"Components",ic:"cube"},
+    {id:"services",label:"Services",ic:"cog"},{id:"env",label:"Environment",ic:"cog"}]},
+  {g:"COMMUNICATION",items:[{id:"messages",label:"Messages",ic:"msg"},{id:"discussions",label:"Discussions",ic:"msg"},{id:"notifications",label:"Notifications",ic:"bell"}]},
+  {g:"SETTINGS",items:[{id:"config",label:"Project Config",ic:"cog"},{id:"roles",label:"Users & Roles",ic:"cube"},{id:"permissions",label:"Permissions",ic:"cog"}]},
+];
+/* The files behind the SETTINGS group, matched by path so the panels stay
+ * correct if the scan finds more of them. */
+const PERMISSION_FILES=(D)=>Object.keys(D.files).filter(p=>/^src\/lib\/gov\/(authorize|chat-access)\.ts$/.test(p));
+const ROLE_TABLES=(D)=>D.tables.filter(t=>t.columns.some(c=>c.name==="role"));
+function counts(id){
+  const f=Object.values(D.files);
+  return {files:f.length,routes:D.routes.length,tables:D.tables.length,env:D.env.length,
+    components:f.filter(x=>x.kind==="component").length,services:f.filter(x=>x.kind==="service").length,
+    messages:D.tables.filter(t=>/message|conversation/.test(t.name)).length,
+    discussions:D.routes.filter(r=>/conversation|clarification/.test(r.path)).length,
+    notifications:D.tables.filter(t=>/notification/.test(t.name)).length,
+    config:f.filter(x=>x.layer==="config").length+D.env.length,
+    roles:ROLE_TABLES(D).length,
+    permissions:PERMISSION_FILES(D).reduce((n,p)=>n+D.files[p].exports.length,0)}[id] ?? "";
+}
+function renderRail(){
+  $("rail").innerHTML=RAIL.map(g=>`<div class="railgroup">${g.g}</div>`+g.items.map(i=>
+    `<button class="nav" data-sec="${i.id}" aria-current="${section===i.id}">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${ICON[i.ic]}</svg>
+      ${esc(i.label)}<span class="n">${counts(i.id)}</span></button>`).join("")).join("")+
+    `<div class="status"><b><i></i>Architecture scan</b>
+      <span>${D.counts.files} files · ${D.counts.routes} routes</span>
+      <span>${D.counts.tables} tables · ${D.counts.envVars} env</span>
+      <span style="opacity:.7">${new Date(D.generatedAt).toLocaleString("en-GB",{dateStyle:"medium",timeStyle:"short"})}</span></div>`;
+  $("rail").querySelectorAll("[data-sec]").forEach(b=>b.onclick=()=>{section=b.dataset.sec;render()});
+}
+
+/* -- Panels -------------------------------------------------------------- */
+function pBigPicture(){
+  return `<section class="card"><h2>SYSTEM WORKFLOW — BIG PICTURE<span class="badge">${D.stages.length} stages</span></h2>
+  <p class="sub">Complete journey from citizen registration to issue resolution</p>
+  <div class="pad"><div class="stagerow">${D.stages.map((s,i)=>`
+    <div class="stagecell">
+      <button class="stage" style="--l:${col(s.layer)}" data-stage="${s.id}">
+        <span class="bub">${String(s.n).padStart(2,"0")}</span>
+        <h3>${esc(s.title)}</h3><p>${esc(s.what.split(".")[0])}.</p>
+      </button>
+      ${i<D.stages.length-1?`<span class="stagearrow"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h13m0 0-5-5m5 5-5 5"/></svg></span>`:""}
+    </div>`).join("")}</div></div></section>`;
+}
+
+function moduleGroups(){
+  const f=Object.entries(D.files);
+  const by=(fn)=>f.filter(([p,v])=>fn(p,v));
+  return [
+    {t:"FRONTEND",c:"--frontend",items:[
+      ["Pages",by((p,v)=>v.kind==="page")],["Components",by((p,v)=>v.kind==="component")],
+      ["Layouts",by((p,v)=>v.kind==="layout")],["Client libs",by(p=>p.startsWith("src/lib/civic/"))]]},
+    {t:"AI SERVICES",c:"--ai",items:[
+      ["Gemini",by(p=>p.startsWith("src/services/gemini/"))],["Vision",by(p=>p.startsWith("src/services/vision/"))],
+      ["Speech",by(p=>p.startsWith("src/services/speech/"))],["Grouping",by(p=>p.startsWith("src/services/gov/"))]]},
+    {t:"AUTHORITY",c:"--gov",items:[
+      ["Gov pages",by(p=>p.startsWith("src/app/gov/"))],["Gov components",by(p=>p.startsWith("src/components/gov/"))],
+      ["Gov services",by(p=>p.startsWith("src/lib/gov/"))],["Gov APIs",by(p=>p.startsWith("src/app/api/gov/"))]]},
+    {t:"API LAYER",c:"--api",items:[
+      ["Route handlers",by((p,v)=>v.kind==="api-route")],["Auth routes",by(p=>p.startsWith("src/app/api/auth"))],
+      ["Citizen routes",by(p=>p.startsWith("src/app/api/citizen"))],["CNIC routes",by(p=>p.startsWith("src/app/api/cnic"))]]},
+    {t:"DATABASE",c:"--database",items:[
+      ["Schema files",by(p=>p.startsWith("src/db/"))],["Tables",D.tables.map(t=>[t.file,{}])],
+      ["Foreign keys",D.tables.flatMap(t=>t.foreignKeys.map(()=>["",{}]))],["Migrations",by(p=>p.startsWith("drizzle/"))]]},
+    {t:"COMMUNICATION",c:"--comm",items:[
+      ["Message tables",D.tables.filter(t=>/message/.test(t.name)).map(t=>[t.file,{}])],
+      ["Conversation APIs",D.routes.filter(r=>/conversation/.test(r.path)).map(r=>[r.file,{}])],
+      ["Clarifications",D.routes.filter(r=>/clarification/.test(r.path)).map(r=>[r.file,{}])],
+      ["Notifications",D.routes.filter(r=>/notification/.test(r.path)).map(r=>[r.file,{}])]]},
+  ];
+}
+function pArchOverview(){
+  const g=moduleGroups();
+  const box=(m)=>`<div class="modbox" style="--mc:var(${m.c})"><h4>${m.t}</h4>
+    ${m.items.map(([label,list])=>`<button data-mod="${esc(m.t)}|${esc(label)}"><i class="d"></i>${esc(label)}<span class="c">${list.length}</span></button>`).join("")}</div>`;
+  return `<section class="archdark"><h2>SYSTEM ARCHITECTURE OVERVIEW</h2>
+    <p class="sub">High level view of all major modules and connections</p>
+    <div class="archgrid">
+      <div style="display:grid;gap:10px">${box(g[0])}${box(g[3])}</div>
+      <div><div class="hex">
+        <svg viewBox="0 0 112 112"><defs><linearGradient id="hg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#12b886"/><stop offset="1" stop-color="#2f6fdc"/></linearGradient></defs>
+          <polygon points="56,6 100,31 100,81 56,106 12,81 12,31" fill="url(#hg)" opacity=".9"/>
+          <polygon points="56,16 91,36 91,76 56,96 21,76 21,36" fill="none" stroke="rgba(255,255,255,.4)"/>
+        </svg><span>CivicAI</span></div></div>
+      <div style="display:grid;gap:10px">${box(g[1])}${box(g[2])}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px">${box(g[4])}${box(g[5])}</div>
+    <div class="extrow"><h4>EXTERNAL SERVICES</h4><div class="extchips">
+      ${D.env.filter(e=>/GEMINI|DATABASE|AUTH/.test(e.name)).map(e=>
+        `<span class="extchip"><i style="width:5px;height:5px;border-radius:50%;background:var(--external);display:block"></i>${esc(e.name)}</span>`).join("")}
+    </div></div></section>`;
+}
+
+/* -- Graph ---------------------------------------------------------------
+ *
+ * The graph draws the request path, because that is what actually explains
+ * this system:
+ *
+ *   UI  --HTTP-->  API route  --import-->  service / library  --uses-->  table
+ *                                                             --calls--> package
+ *
+ * The HTTP edge is the one that matters most and the one imports cannot give
+ * you: a page never imports its route handler, it fetches it. scan.mts reads
+ * those `/api/...` literals out of the source so the two halves of the system
+ * join up here instead of sitting as separate islands.
+ * ----------------------------------------------------------------------- */
+const COLS=[
+  {id:"ui",   t:"INTERFACE", s:"pages & components"},
+  {id:"route",t:"API ROUTE", s:"HTTP handlers"},
+  {id:"logic",t:"LOGIC",     s:"services & libraries"},
+  {id:"data", t:"DATA",      s:"schema tables"},
+  {id:"ext",  t:"EXTERNAL",  s:"third-party"},
+];
+const COL_W=252, NODE_W=168, NODE_H=46, ROW_H=64, TOP=54;
+/* Framework imports are in almost every file and say nothing about the
+ * architecture; the packages the system genuinely leaves our code for do. */
+const PKG_NOISE=new Set(["react","react-dom","next","lucide-react","clsx","tailwind-merge",
+  "class-variance-authority","node:test","node:assert","node:assert/strict","server-only",
+  "react-hook-form","@hookform/resolvers"]);
+const EDGE_STYLE={
+  http:   {c:"var(--api)",     dash:"6 4", label:"HTTP call"},
+  import: {c:"var(--frontend)",dash:"",    label:"import"},
+  table:  {c:"var(--database)",dash:"2 4", label:"table access"},
+  pkg:    {c:"var(--external)",dash:"7 5", label:"external"},
+};
+
+let G={nodes:[],edges:[],byId:{},w:0,h:0};
+let gz=1,gx=0,gy=0,scope="all",focus=null;
+
+function colOf(id){
+  if(id.startsWith("table:")) return "data";
+  if(id.startsWith("pkg:")) return "ext";
+  const f=D.files[id]; if(!f) return "logic";
+  if(f.kind==="api-route") return "route";
+  if(f.kind==="page"||f.kind==="component"||f.kind==="layout") return "ui";
+  return "logic";
+}
+function labelOf(id){
+  if(id.startsWith("table:")) return id.slice(6);
+  if(id.startsWith("pkg:")) return id.slice(4);
+  const f=D.files[id];
+  if(f&&f.kind==="api-route"){
+    const r=D.routes.find(x=>x.file===id);
+    if(r) return r.path.replace(/^\/api\//,"");
+  }
+  return base(id);
+}
+function layerOfNode(id){
+  if(id.startsWith("table:")) return "database";
+  if(id.startsWith("pkg:")) return "external";
+  return D.files[id]?.layer||"lib";
+}
+
+/** Everything one file reaches directly, as typed edges. */
+function outEdges(id){
+  const f=D.files[id]; if(!f) return [];
+  const out=[];
+  for(const t of f.apiCalls) out.push({to:t,type:"http"});
+  for(const t of f.imports) if(D.files[t]) out.push({to:t,type:"import"});
+  for(const t of f.tablesUsed) out.push({to:"table:"+t,type:"table"});
+  for(const p of f.packages) if(!PKG_NOISE.has(p)) out.push({to:"pkg:"+p,type:"pkg"});
+  return out;
+}
+function inEdges(id){
+  const f=D.files[id]; if(!f) return [];
+  return [...f.calledBy.map(x=>({from:x,type:"http"})),
+          ...f.importedBy.map(x=>({from:x,type:"import"}))];
+}
+
+/** Seed set for the current scope, then everything it reaches. */
+function buildGraph(){
+  let seeds;
+  if(scope==="all"){
+    seeds=Object.keys(D.files).filter(p=>D.files[p].apiCalls.length>0)
+      .concat(D.routes.map(r=>r.file));
+  }else{
+    const st=D.stages.find(s=>s.id===scope);
+    seeds=st?st.files.slice():[];
+    // Pull in the routes those files call, and the files that call them.
+    for(const f of seeds.slice()) for(const e of inEdges(f)) if(e.type==="http") seeds.push(e.from);
+  }
+
+  const keep=new Set(seeds.filter(s=>D.files[s]));
+  const depthLimit=scope==="all"?2:3;
+  let frontier=[...keep];
+  for(let d=0;d<depthLimit;d++){
+    const next=[];
+    for(const id of frontier) for(const e of outEdges(id)){
+      if(keep.has(e.to)) continue;
+      // Tests and the schema definition file are noise inside a flow diagram.
+      if(D.files[e.to]&&(D.files[e.to].layer==="test")) continue;
+      keep.add(e.to); next.push(e.to);
+    }
+    frontier=next.filter(x=>D.files[x]);
+  }
+
+  const nodes=[...keep].map(id=>({id,col:colOf(id),label:labelOf(id),layer:layerOfNode(id),x:0,y:0}));
+  const has=new Set(nodes.map(n=>n.id));
+  const edges=[];
+  for(const n of nodes) for(const e of outEdges(n.id))
+    if(has.has(e.to)&&e.to!==n.id) edges.push({from:n.id,to:e.to,type:e.type});
+
+  layout(nodes,edges);
+  G={nodes,edges,byId:Object.fromEntries(nodes.map(n=>[n.id,n])),
+     w:COLS.length*COL_W, h:TOP+Math.max(1,...COLS.map(c=>nodes.filter(n=>n.col===c.id).length))*ROW_H+30};
+}
+
+/**
+ * Sugiyama-style ordering: place each column, then repeatedly re-sort every
+ * column by the average height of what it connects to. Four sweeps is enough
+ * to pull related nodes level with each other and take most of the crossings
+ * out, which is the difference between a diagram and a plate of spaghetti.
+ */
+function layout(nodes,edges){
+  const cols=COLS.map(c=>nodes.filter(n=>n.col===c.id));
+  const deg=(n)=>edges.filter(e=>e.from===n.id||e.to===n.id).length;
+  cols.forEach(list=>list.sort((a,b)=>deg(b)-deg(a)||a.label.localeCompare(b.label)));
+  const place=()=>cols.forEach((list,ci)=>list.forEach((n,i)=>{
+    n.x=ci*COL_W+(COL_W-NODE_W)/2; n.y=TOP+i*ROW_H;
+  }));
+  place();
+
+  const pos=Object.fromEntries(nodes.map(n=>[n.id,n]));
+  for(let sweep=0;sweep<4;sweep++){
+    const forward=sweep%2===0;
+    const order=forward?cols.map((_,i)=>i):cols.map((_,i)=>cols.length-1-i);
+    for(const ci of order){
+      const list=cols[ci]; if(list.length<2) continue;
+      const bary=new Map();
+      for(const n of list){
+        const links=edges.filter(e=>forward?e.to===n.id:e.from===n.id)
+          .map(e=>pos[forward?e.from:e.to]).filter(Boolean);
+        bary.set(n.id,links.length?links.reduce((s,p)=>s+p.y,0)/links.length:n.y);
+      }
+      list.sort((a,b)=>bary.get(a.id)-bary.get(b.id));
+      list.forEach((n,i)=>{n.y=TOP+i*ROW_H;});
+    }
+  }
+  place();
+  cols.forEach((list)=>list.forEach((n,i)=>{n.y=TOP+i*ROW_H;}));
+}
+
+/** Everything reachable from a node, both directions — its story in the system. */
+function neighbourhood(id){
+  const set=new Set([id]);
+  const walk=(start,next)=>{
+    const q=[start];
+    while(q.length){
+      const cur=q.shift();
+      for(const nb of next(cur)) if(G.byId[nb]&&!set.has(nb)){set.add(nb);q.push(nb);}
+    }
+  };
+  walk(id,(c)=>outEdges(c).map(e=>e.to));
+  walk(id,(c)=>inEdges(c).map(e=>e.from));
+  return set;
+}
+
+function drawGraph(){
+  const world=$("world"); if(!world) return;
+  world.style.transform=`translate(${gx}px,${gy}px) scale(${gz})`;
+  const zoomEl=$("zoom"); if(zoomEl) zoomEl.textContent=`${Math.round(gz*100)}%`;
+
+  const lit=focus?neighbourhood(focus):null;
+  const on=(id)=>(!lit||lit.has(id))&&(!layerFilter||G.byId[id]?.layer===layerFilter||layerFilter==="");
+
+  let paths="";
+  for(const e of G.edges){
+    const a=G.byId[e.from],b=G.byId[e.to]; if(!a||!b) continue;
+    const live=on(e.from)&&on(e.to);
+    const st=EDGE_STYLE[e.type];
+    const x1=a.x+NODE_W,y1=a.y+NODE_H/2,x2=b.x,y2=b.y+NODE_H/2;
+    const mid=(x2-x1)/2;
+    paths+=`<path d="M${x1} ${y1} C ${x1+mid} ${y1}, ${x2-mid} ${y2}, ${x2-7} ${y2}"
+      fill="none" stroke="${st.c}" stroke-width="${live?1.6:1}" stroke-dasharray="${st.dash}"
+      opacity="${live?.75:.07}" marker-end="url(#ar-${e.type})"/>`;
+  }
+  const svg=$("edges");
+  svg.setAttribute("width",G.w); svg.setAttribute("height",G.h);
+  svg.innerHTML=`<defs>${Object.entries(EDGE_STYLE).map(([k,v])=>
+    `<marker id="ar-${k}" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L8 4 L0 8 z" fill="${v.c}"/></marker>`).join("")}</defs>`+
+    COLS.map((c,i)=>`<text x="${i*COL_W+COL_W/2}" y="20" text-anchor="middle"
+      font-family="Archivo,sans-serif" font-size="11" font-weight="700" letter-spacing="1.4"
+      fill="currentColor" opacity=".55">${c.t}</text>
+      <text x="${i*COL_W+COL_W/2}" y="35" text-anchor="middle" font-size="10"
+      fill="currentColor" opacity=".35">${c.s}</text>
+      <line x1="${i*COL_W+8}" y1="43" x2="${i*COL_W+COL_W-8}" y2="43" stroke="currentColor" opacity=".12"/>`).join("")+
+    paths;
+
+  for(const el of world.querySelectorAll(".node")){
+    const n=G.byId[el.dataset.id]; if(!n) continue;
+    el.style.left=n.x+"px"; el.style.top=n.y+"px";
+    el.classList.toggle("faded",!on(n.id));
+    el.classList.toggle("focused",focus===n.id);
+  }
+}
+
+function pCodeFlow(){
+  buildGraph();
+  const counts=COLS.map(c=>G.nodes.filter(n=>n.col===c.id).length);
+  return `<section class="card"><h2>CODE FLOW — HOW A REQUEST TRAVELS
+    <span class="badge">${G.nodes.length} nodes · ${G.edges.length} connections</span></h2>
+  <p class="sub">Interface → API route → logic → data. Click any node to follow only what it touches.</p>
+  <div class="pad"><div class="flowwrap">
+    <div>
+      <div class="legend"><h4>SCOPE</h4>
+        <select id="scope" class="scopesel">
+          <option value="all"${scope==="all"?" selected":""}>Whole request graph</option>
+          ${D.stages.map(s=>`<option value="${s.id}"${scope===s.id?" selected":""}>${String(s.n).padStart(2,"0")} · ${esc(s.title)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="legend" style="margin-top:12px"><h4>CONNECTIONS</h4>
+        ${Object.entries(EDGE_STYLE).map(([k,v])=>
+          `<div class="edgekey"><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4"
+            stroke="${v.c}" stroke-width="1.8" stroke-dasharray="${v.dash}"/></svg>${v.label}</div>`).join("")}
+      </div>
+      <div class="legend" style="margin-top:12px"><h4>LAYER LEGEND</h4>
+        ${Object.entries(LAYERS).slice(0,7).map(([k,v])=>
+          `<button data-layer="${k}" style="--lc:${col(k)}" aria-pressed="${layerFilter===k}"><i class="sw"></i>${v}</button>`).join("")}
+        <button data-layer="" style="--lc:var(--muted)" aria-pressed="${!layerFilter}"><i class="sw"></i>All layers</button>
+      </div>
+      <div class="ctls"><h4>CONTROLS</h4>
+        <button data-ctl="in">⊕ Zoom In</button><button data-ctl="out">⊖ Zoom Out</button>
+        <button data-ctl="fit">⤢ Fit to Screen</button><button data-ctl="reset">↺ Reset Layout</button>
+        <button data-ctl="clear">✕ Clear Focus</button>
+      </div>
+      <div style="margin-top:12px;font-size:10px;color:var(--muted);line-height:1.5">
+        ${COLS.map((c,i)=>`${c.t} ${counts[i]}`).join(" · ")}
+      </div>
+    </div>
+    <div class="viewport" id="viewport">
+      <div class="world" id="world">
+        <svg class="edges" id="edges"></svg>
+        ${G.nodes.map(n=>`<div class="node" data-node="${esc(n.id)}" data-id="${esc(n.id)}" style="--nc:${col(n.layer)}">
+          <b>${esc(n.label)}</b><span>${esc(nodeSub(n))}</span></div>`).join("")}
+      </div>
+      <span class="zoombadge" id="zoom">100%</span>
+      ${focus?`<span class="focusbadge">Focused: <b>${esc(labelOf(focus))}</b> — showing ${neighbourhood(focus).size} connected</span>`:""}
+    </div>
+  </div></div></section>`;
+}
+function nodeSub(n){
+  if(n.id.startsWith("table:")){
+    const t=D.tables.find(x=>x.name===n.id.slice(6));
+    return t?`${t.columns.length} columns`:"table";
+  }
+  if(n.id.startsWith("pkg:")) return "package";
+  const f=D.files[n.id];
+  if(f.kind==="api-route"){
+    const r=D.routes.find(x=>x.file===n.id);
+    return r?r.methods.join(" "):"route";
+  }
+  return n.id.replace(/^src\//,"").replace(/\/[^/]+$/,"");
+}
+
+/* -- Inspector ------------------------------------------------------------ */
+let inspected=null;
+
+/** Packages worth naming — the framework imports are in every file. */
+function outsidePkgs(f){ return f.packages.filter(x=>!PKG_NOISE.has(x)); }
+
+/**
+ * The end-to-end path this file sits on, walked over the real edges.
+ *
+ * Answers the question the file list never can: when somebody uses the app,
+ * what actually runs, in what order, and where does it end up in the database.
+ */
+function tracePanel(path){
+  const up=[];              // who reaches this file
+  let cur=path, guard=0;
+  while(guard++<6){
+    const f=D.files[cur]; if(!f) break;
+    const prev=f.calledBy[0]??f.importedBy.find(x=>D.files[x]?.kind!=="test");
+    if(!prev||up.includes(prev)) break;
+    up.unshift(prev); cur=prev;
+  }
+  const down=[]; cur=path; guard=0;
+  while(guard++<6){
+    const f=D.files[cur]; if(!f) break;
+    const next=f.apiCalls[0]??f.imports.find(x=>D.files[x]&&/^src\/(lib|services|db)\//.test(x));
+    if(!next||down.includes(next)) break;
+    down.push(next); cur=next;
+  }
+  const tables=[...new Set([path,...down].flatMap(x=>D.files[x]?.tablesUsed??[]))];
+  const steps=[...up.map(x=>({x,me:false})),{x:path,me:true},...down.map(x=>({x,me:false}))];
+  if(steps.length<2&&!tables.length) return "";
+
+  return `<h5>TRACE</h5><div class="trace">
+    ${steps.map((st,i)=>`<div class="tstep${st.me?" me":""}">
+      <span class="tdot" style="background:${col(D.files[st.x]?.layer||"lib")}"></span>
+      <button data-file="${esc(st.x)}">${esc(base(st.x))}</button>
+      <span class="tkind">${esc(D.files[st.x]?.kind||"")}</span></div>
+      ${i<steps.length-1?'<div class="tline"></div>':""}`).join("")}
+    ${tables.length?`<div class="tline"></div><div class="tstep">
+      <span class="tdot" style="background:${col("database")}"></span>
+      <span>${tables.map(t=>`<button data-table="${esc(t)}">${esc(t)}</button>`).join(" ")}</span>
+      <span class="tkind">table</span></div>`:""}
+  </div>`;
+}
+
+function pInspector(){
+  const path=inspected??Object.keys(D.files).find(p=>D.files[p].calledBy.length&&D.files[p].imports.length)
+    ??Object.keys(D.files)[0];
+  const f=D.files[path]; if(!f) return "";
+  const serves=D.routes.filter(r=>r.file===path), defines=D.tables.filter(t=>t.file===path);
+  const chips=(a)=>a.length?a.slice(0,10).map(x=>`<button class="chip" data-file="${esc(x)}"><i class="d" style="background:${col(D.files[x]?.layer||"config")}"></i>${esc(base(x))}</button>`).join(""):'<span style="font-size:11px;color:var(--muted)">None</span>';
+  return `<section class="card insp"><h2>FILE INSPECTOR</h2>
+  <div class="pad">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+      <i style="width:9px;height:9px;border-radius:2px;background:${col(f.layer)};display:block"></i>
+      <b class="mono" style="font-size:13px">${esc(base(path))}</b></div>
+    <dl class="row"><dt>PATH</dt><dd class="mono" style="font-size:10.5px">${esc(path)}</dd></dl>
+    <dl class="row"><dt>TYPE</dt><dd>${esc(f.kind)} · ${LAYERS[f.layer]||f.layer}</dd></dl>
+    <dl class="row"><dt>LINES</dt><dd class="mono">${f.lines}</dd></dl>
+    ${f.summary?`<h5>PURPOSE</h5><div class="purpose">${esc(f.summary.slice(0,260))}${f.summary.length>260?"…":""}</div>`:""}
+    ${serves.length?`<h5>SERVES</h5>${serves.map(r=>`<div class="mono" style="font-size:10.5px;margin-bottom:3px">${r.methods.map(m=>`<span class="meth m-${m}">${m}</span>`).join(" ")} ${esc(r.path)}</div>`).join("")}`:""}
+    ${defines.length?`<h5>DEFINES TABLES</h5>${defines.map(t=>`<button class="chip" data-table="${esc(t.name)}">${esc(t.name)}</button>`).join("")}`:""}
+    <h5>EXPORTS (${f.exports.length})</h5>${f.exports.slice(0,10).map(e=>`<span class="chip">${esc(e)}</span>`).join("")||'<span style="font-size:11px;color:var(--muted)">None</span>'}
+    ${f.calledBy.length?`<h5>CALLED OVER HTTP BY (${f.calledBy.length})</h5>${chips(f.calledBy)}`:""}
+    ${f.apiCalls.length?`<h5>CALLS ENDPOINTS (${f.apiCalls.length})</h5>${f.apiCalls.map(a=>{
+      const r=D.routes.find(x=>x.file===a);
+      return `<button class="chip" data-file="${esc(a)}"><i class="d" style="background:${col("api")}"></i>${esc(r?r.path:base(a))}</button>`;
+    }).join("")}`:""}
+    ${f.tablesUsed.length?`<h5>READS / WRITES TABLES (${f.tablesUsed.length})</h5>${f.tablesUsed.map(t=>
+      `<button class="chip" data-table="${esc(t)}"><i class="d" style="background:${col("database")}"></i>${esc(t)}</button>`).join("")}`:""}
+    ${outsidePkgs(f).length?`<h5>EXTERNAL PACKAGES</h5>${outsidePkgs(f).map(pk=>
+      `<span class="chip"><i class="d" style="background:var(--external)"></i>${esc(pk)}</span>`).join("")}`:""}
+    <h5>USED BY (${f.importedBy.length})</h5>${chips(f.importedBy)}
+    <h5>DEPENDS ON (${f.imports.length})</h5>${chips(f.imports)}
+    ${tracePanel(path)}
+    ${f.envVars.length?`<h5>ENVIRONMENT</h5>${f.envVars.map(v=>`<span class="chip">${esc(v)} ••••</span>`).join("")}`:""}
+    <button class="openfile" data-open="${esc(path)}">Open File</button>
+  </div></section>`;
+}
+
+/* -- Bottom panels --------------------------------------------------------- */
+function pRoutes(){
+  return `<section class="card"><h2>API ENDPOINTS<span class="badge">${D.routes.length}</span></h2>
+  <div class="pad"><div class="scroll"><table><thead><tr><th>METHOD</th><th>ENDPOINT</th><th>AUTH</th></tr></thead><tbody>
+  ${D.routes.map(r=>`<tr><td>${r.methods.map(m=>`<span class="meth m-${m}">${m}</span>`).join(" ")}</td>
+    <td><button class="chip" data-file="${esc(r.file)}" style="margin:0">${esc(r.path)}</button></td>
+    <td><span class="pill">${esc(r.auth)}</span></td></tr>`).join("")}
+  </tbody></table></div><button class="linkbtn" data-sec="routes">View All Endpoints</button></div></section>`;
+}
+function pSchema(){
+  const top=D.tables.filter(t=>t.foreignKeys.length||/user|report|civic_issue|department/.test(t.name)).slice(0,6);
+  return `<section class="card"><h2>DATABASE SCHEMA<span class="badge">${D.tables.length} tables</span></h2>
+  <div class="pad"><div class="erwrap">${top.map(t=>`
+    <button class="erbox" data-table="${esc(t.name)}" style="text-align:left">
+      <b>${esc(t.name)}</b>
+      ${t.columns.slice(0,4).map(c=>`<span>${c.primaryKey?"◆ ":""}${esc(c.name)}</span>`).join("")}
+      ${t.columns.length>4?`<span style="opacity:.6">+${t.columns.length-4} more</span>`:""}
+    </button>`).join("")}</div>
+  <button class="linkbtn" data-sec="tables">View Full Schema</button></div></section>`;
+}
+function pEnv(){
+  return `<section class="card"><h2>ENVIRONMENT VARIABLES<span class="badge">${D.env.length}</span></h2>
+  <div class="pad"><div class="scroll"><table><thead><tr><th>VARIABLE</th><th>VALUE</th><th>USED IN</th></tr></thead><tbody>
+  ${D.env.map(e=>`<tr><td class="mono" style="font-size:10px">${esc(e.name)}</td>
+    <td><span class="pill">••••••••</span></td>
+    <td class="mono" style="font-size:9.5px;color:var(--muted)">${esc(base(e.usedBy[0]||""))}${e.usedBy.length>1?` +${e.usedBy.length-1}`:""}</td></tr>`).join("")}
+  </tbody></table></div>
+  <div style="font-size:10px;color:var(--muted);margin-top:8px;line-height:1.45">
+    Values are never read. The scanner collects NAMES from <span class="mono">process.env</span> in source and never opens a <span class="mono">.env</span> file.</div>
+  </div></section>`;
+}
+function pComms(){
+  const tabs=D.tables.filter(t=>/message|conversation|notification|clarification/.test(t.name));
+  const routes=D.routes.filter(r=>/conversation|clarification|notification/.test(r.path));
+  return `<section class="card commdark"><h2>COMMUNICATION PIPELINE</h2>
+  <p class="sub">The real tables and routes behind issue discussion</p>
+  <div class="pad">
+    ${tabs.slice(0,4).map(t=>`<div class="msg">
+      <span class="av">${esc(t.name.slice(0,2).toUpperCase())}</span>
+      <span style="min-width:0"><b>${esc(t.name)}</b><p>${t.columns.length} columns · ${t.foreignKeys.length} foreign keys</p></span>
+      <span class="t">table</span></div>`).join("")}
+    ${routes.slice(0,3).map(r=>`<div class="msg">
+      <span class="av" style="color:var(--api)">${esc(r.methods[0]||"·")}</span>
+      <span style="min-width:0"><b class="mono" style="font-size:10px">${esc(r.path)}</b><p>${esc(base(r.file))}</p></span>
+      <span class="t">route</span></div>`).join("")}
+    <div style="font-size:10px;color:#7d8ea8;margin-top:8px">
+      Structure only — this dashboard reads source, not the running database, so no live messages are shown.</div>
+  </div></section>`;
+}
+
+/* -- Full sections ---------------------------------------------------------- */
+function full(){
+  if(section==="routes") return pRoutes()+"";
+  if(section==="tables"){
+    return `<section class="card"><h2>DATABASE<span class="badge">${D.tables.length}</span></h2><div class="pad"><div style="max-height:70vh;overflow:auto">
+    <table><thead><tr><th>TABLE</th><th>COLUMNS</th><th>FOREIGN KEYS</th><th>FILE</th></tr></thead><tbody>
+    ${D.tables.map(t=>`<tr><td><button class="chip" data-table="${esc(t.name)}" style="margin:0">${esc(t.name)}</button></td>
+      <td>${t.columns.length}</td><td class="mono" style="font-size:9.5px">${t.foreignKeys.map(f=>esc(f.references)).join("<br>")||"—"}</td>
+      <td><button class="chip" data-file="${esc(t.file)}" style="margin:0">${esc(base(t.file))}</button></td></tr>`).join("")}
+    </tbody></table></div></div></section>`;
+  }
+  if(section==="env") return pEnv();
+  const filters={files:()=>true,components:(p,v)=>v.kind==="component",services:(p,v)=>v.kind==="service"};
+  if(filters[section]){
+    const list=Object.entries(D.files).filter(([p,v])=>filters[section](p,v));
+    return `<section class="card"><h2>${section.toUpperCase()}<span class="badge">${list.length}</span></h2><div class="pad"><div style="max-height:70vh;overflow:auto">
+    <table><thead><tr><th>FILE</th><th>LAYER</th><th>LINES</th><th>USED BY</th></tr></thead><tbody>
+    ${list.map(([p,v])=>`<tr><td><button class="chip" data-file="${esc(p)}" style="margin:0"><i class="d" style="background:${col(v.layer)}"></i>${esc(base(p))}</button>
+      <div class="mono" style="font-size:9px;color:var(--muted)">${esc(p)}</div></td>
+      <td><span class="pill">${LAYERS[v.layer]||v.layer}</span></td><td class="mono">${v.lines}</td><td class="mono">${v.importedBy.length}</td></tr>`).join("")}
+    </tbody></table></div></div></section>`;
+  }
+  if(section==="messages"||section==="discussions"||section==="notifications") return pComms();
+  if(section==="config"){
+    const cfg=Object.entries(D.files).filter(([p,v])=>v.layer==="config");
+    return `<section class="card"><h2>PROJECT CONFIG<span class="badge">${cfg.length} files</span></h2>
+      <p class="sub">Configuration modules found in the scanned source</p>
+      <div class="pad">${cfg.map(([p,v])=>`<button class="chip" data-file="${esc(p)}"><i class="d" style="background:${col(v.layer)}"></i>${esc(p)}</button>`).join("")||'<span style="font-size:11px;color:var(--muted)">None</span>'}</div>
+      </section>`+pEnv();
+  }
+  if(section==="roles"){
+    const tabs=ROLE_TABLES(D);
+    const authFiles=Object.entries(D.files).filter(([p,v])=>v.layer==="auth");
+    return `<section class="card"><h2>USERS &amp; ROLES<span class="badge">${tabs.length} tables</span></h2>
+      <p class="sub">Tables carrying a role column, and the files that sign people in</p>
+      <div class="pad"><div class="erwrap">${tabs.map(t=>`
+        <button class="erbox" data-table="${esc(t.name)}" style="text-align:left"><b>${esc(t.name)}</b>
+        ${t.columns.slice(0,6).map(c=>`<span>${c.primaryKey?"\u25c6 ":""}${esc(c.name)}</span>`).join("")}
+        ${t.columns.length>6?`<span style="opacity:.6">+${t.columns.length-6} more</span>`:""}</button>`).join("")}</div>
+      <h5 style="margin:14px 0 6px;font:700 9px/1 Archivo,sans-serif;letter-spacing:.11em;color:var(--muted)">AUTH LAYER (${authFiles.length} FILES)</h5>
+      ${authFiles.map(([p,v])=>`<button class="chip" data-file="${esc(p)}"><i class="d" style="background:${col(v.layer)}"></i>${esc(base(p))}</button>`).join("")}
+      </div></section>`;
+  }
+  if(section==="permissions"){
+    const files=PERMISSION_FILES(D);
+    const byAuth=(a)=>D.routes.filter(r=>r.auth===a);
+    return `<section class="card"><h2>PERMISSIONS</h2>
+      <p class="sub">The checks exported by the authorisation modules, and how routes are guarded</p>
+      <div class="pad">
+      ${files.map(p=>`<h5 style="margin:0 0 6px;font:700 9px/1 Archivo,sans-serif;letter-spacing:.11em;color:var(--muted)">${esc(p)}</h5>
+        <div style="margin-bottom:12px">${D.files[p].exports.map(e=>`<span class="chip">${esc(e)}</span>`).join("")}</div>`).join("")}
+      <table><thead><tr><th>AUTH</th><th>ROUTES</th></tr></thead><tbody>
+      ${[...new Set(D.routes.map(r=>r.auth))].map(a=>`<tr><td><span class="pill">${esc(a)}</span></td>
+        <td>${byAuth(a).map(r=>`<button class="chip" data-file="${esc(r.file)}" style="margin:0 3px 3px 0">${esc(r.path)}</button>`).join("")}</td></tr>`).join("")}
+      </tbody></table></div></section>`;
+  }
+  if(section==="system") return pBigPicture()+pArchOverview();
+  if(section==="codeflow"||section==="dataflow") return pCodeFlow();
+  return null;
+}
+
+function pFooter(){
+  return `<div class="foot">
+    <div class="card"><h4>DATA FLOW LEGEND</h4><div class="legrow">
+      <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--frontend)" stroke-width="2"/></svg>Import</span>
+      <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--api)" stroke-width="2" stroke-dasharray="4 3"/></svg>API call</span>
+      <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--database)" stroke-width="2" stroke-dasharray="2 3"/></svg>DB access</span>
+      <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--external)" stroke-width="2" stroke-dasharray="6 3"/></svg>External</span>
+    </div></div>
+    <div class="card"><h4>HOW TO USE THIS DASHBOARD</h4><div class="howgrid">
+      <span><b>1.</b> Start with Big Picture for the whole flow.</span>
+      <span><b>4.</b> Click any file, API or table for details.</span>
+      <span><b>2.</b> Switch to Code Flow for files and imports.</span>
+      <span><b>5.</b> Drag nodes to rearrange the graph.</span>
+      <span><b>3.</b> Use Inspect to explore dependencies.</span>
+      <span><b>6.</b> Reset Layout returns nodes to their places.</span>
+    </div></div>
+    <div class="card"><h4>SOURCE OF TRUTH</h4><div class="keygrid">
+      <span>Read from real source</span><span>Nothing invented</span>
+      <span>Secrets never read</span><span>Light &amp; dark themes</span>
+      <span>Zoom, pan &amp; drag</span><span>Search &amp; filter</span>
+      <span>Stage paths verified</span><span>Re-scan to refresh</span>
+    </div></div></div>`;
+}
+
+/* -- Render ------------------------------------------------------------------ */
+function render(){
+  const f=full();
+  $("canvas").innerHTML = f ? f+pFooter() :
+    (mode==="big" ? `${pBigPicture()}${pArchOverview()}<div class="grid2">${pCodeFlow()}${pInspector()}</div>
+       <div class="grid-bottom">${pRoutes()}${pSchema()}${pEnv()}${pComms()}</div>${pFooter()}`
+     : mode==="flow" ? `<div class="grid2 tall">${pCodeFlow()}${pInspector()}</div>${pBigPicture()}
+       <div class="grid-bottom">${pRoutes()}${pSchema()}${pEnv()}${pComms()}</div>${pFooter()}`
+     : `<div class="grid2 tall">${pCodeFlow()}${pInspector()}</div>
+       <div class="grid-bottom">${pRoutes()}${pSchema()}${pEnv()}${pComms()}</div>${pFooter()}`);
+  bind(); renderRail();
+  if($("world")) fit();
+}
+
+function bind(){
+  const c=$("canvas");
+  c.querySelectorAll("[data-file]").forEach(b=>b.onclick=()=>{inspected=b.dataset.file;if(mode==="big")mode="flow";syncMode();render()});
+  c.querySelectorAll("[data-table]").forEach(b=>b.onclick=()=>{
+    const t=D.tables.find(x=>x.name===b.dataset.table); if(t){inspected=t.file;if(mode==="big")mode="flow";syncMode();render()}});
+  c.querySelectorAll("[data-stage]").forEach(b=>b.onclick=()=>{
+    const s=D.stages.find(x=>x.id===b.dataset.stage); if(s&&s.files[0]){inspected=s.files[0];mode="flow";syncMode();render()}});
+  c.querySelectorAll("[data-sec]").forEach(b=>b.onclick=()=>{section=b.dataset.sec;render()});
+  c.querySelectorAll("[data-mod]").forEach(b=>b.onclick=()=>{section="files";render()});
+  c.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>alert(`Source viewing is not enabled.\n\nOpen locally:\n${b.dataset.open}`));
+  c.querySelectorAll("[data-layer]").forEach(b=>b.onclick=()=>{layerFilter=b.dataset.layer||null;
+    c.querySelectorAll("[data-layer]").forEach(x=>x.setAttribute("aria-pressed",String((x.dataset.layer||null)===layerFilter)));drawGraph()});
+  c.querySelectorAll("[data-ctl]").forEach(b=>b.onclick=()=>{
+    const k=b.dataset.ctl;
+    if(k==="in")gz=Math.min(2.6,gz*1.2);
+    else if(k==="out")gz=Math.max(.2,gz/1.2);
+    else if(k==="fit")return fit();
+    else if(k==="reset"){gz=1;gx=0;gy=0;render();return}
+    else if(k==="clear"){focus=null;render();return}
+    drawGraph();});
+  const sc=c.querySelector("#scope");
+  if(sc) sc.onchange=()=>{scope=sc.value;focus=null;render();};
+  wireGraph();
+}
+function fit(){
+  const vp=$("viewport"); if(!vp||!G.nodes.length) return;
+  gz=Math.max(.22,Math.min(1.1,Math.min((vp.clientWidth-24)/G.w,(vp.clientHeight-24)/G.h)));
+  gx=12; gy=12; drawGraph();
+}
+function wireGraph(){
+  const vp=$("viewport"); if(!vp) return;
+  let panning=false,sx=0,sy=0,dragNode=null,moved=0;
+
+  vp.addEventListener("mousedown",(e)=>{
+    const nd=e.target.closest(".node");
+    moved=0;
+    if(nd) dragNode=G.byId[nd.dataset.id];
+    else{panning=true;vp.classList.add("dragging");}
+    sx=e.clientX;sy=e.clientY;e.preventDefault();
+  });
+  window.addEventListener("mousemove",(e)=>{
+    if(!dragNode&&!panning) return;
+    moved+=Math.abs(e.clientX-sx)+Math.abs(e.clientY-sy);
+    if(dragNode){dragNode.x+=(e.clientX-sx)/gz;dragNode.y+=(e.clientY-sy)/gz;}
+    else{gx+=e.clientX-sx;gy+=e.clientY-sy;}
+    sx=e.clientX;sy=e.clientY;drawGraph();
+  });
+  window.addEventListener("mouseup",()=>{panning=false;dragNode=null;vp.classList.remove("dragging");});
+
+  /* A click focuses; a drag must not. Four pixels of travel separates them. */
+  vp.addEventListener("click",(e)=>{
+    const nd=e.target.closest(".node"); if(!nd||moved>4) return;
+    const id=nd.dataset.id;
+    focus=focus===id?null:id;
+    if(D.files[id]) inspected=id;
+    else if(id.startsWith("table:")){
+      const t=D.tables.find(x=>x.name===id.slice(6)); if(t) inspected=t.file;
+    }
+    render();
+  });
+  vp.addEventListener("wheel",(e)=>{
+    e.preventDefault();
+    const r=vp.getBoundingClientRect(), px=e.clientX-r.left, py=e.clientY-r.top;
+    const f=e.deltaY<0?1.12:1/1.12, next=Math.max(.2,Math.min(2.6,gz*f));
+    // Keep the point under the cursor fixed while zooming.
+    gx=px-(px-gx)*(next/gz); gy=py-(py-gy)*(next/gz); gz=next;
+    drawGraph();
+  },{passive:false});
+
+  drawGraph();
+}
+function syncMode(){document.querySelectorAll(".mode").forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.mode===mode)))}
+document.querySelectorAll(".mode").forEach(b=>b.onclick=()=>{mode=b.dataset.mode;section="dashboard";syncMode();render()});
+
+/* -- Search ------------------------------------------------------------------- */
+$("q").addEventListener("input",(e)=>{
+  const q=e.target.value.trim().toLowerCase(), box=$("results");
+  if(q.length<2){box.hidden=true;return}
+  const out=[];
+  for(const p of Object.keys(D.files)) if(p.toLowerCase().includes(q)) out.push({l:base(p),s:p,k:"file",id:p});
+  for(const r of D.routes) if(r.path.toLowerCase().includes(q)) out.push({l:r.path,s:r.file,k:"file",id:r.file});
+  for(const t of D.tables) if(t.name.toLowerCase().includes(q)) out.push({l:t.name,s:`table · ${t.columns.length} cols`,k:"table",id:t.name});
+  for(const v of D.env) if(v.name.toLowerCase().includes(q)) out.push({l:v.name,s:`env · ${v.usedBy.length} files`,k:"file",id:v.usedBy[0]});
+  for(const p of Object.keys(D.files)) for(const x of D.files[p].exports)
+    if(x.toLowerCase().includes(q)) out.push({l:x,s:p,k:"file",id:p});
+  if(!out.length){box.hidden=true;return}
+  box.hidden=false;
+  box.innerHTML=out.slice(0,30).map(h=>`<button data-k="${h.k}" data-id="${esc(h.id)}"><b>${esc(h.l)}</b><i>${esc(h.s)}</i></button>`).join("");
+  box.querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    box.hidden=true;$("q").value="";
+    if(b.dataset.k==="table"){const t=D.tables.find(x=>x.name===b.dataset.id);if(t)inspected=t.file;}
+    else inspected=b.dataset.id;
+    mode="flow";section="dashboard";syncMode();render();});
+});
+document.addEventListener("click",(e)=>{if(!e.target.closest(".searchwrap"))$("results").hidden=true});
+
+/* -- Load ---------------------------------------------------------------------- */
+fetch("architecture.json").then(r=>{if(!r.ok)throw new Error();return r.json()})
+  .then(j=>{D=j;setTheme(document.documentElement.dataset.theme||"light");render()})
+  .catch(()=>{$("canvas").innerHTML=`<div class="empty"><b>architecture.json not found.</b><br><br>
+    Generate it with <span class="mono">npm run dashboard:scan</span>, then serve this folder.</div>`});
+</script>
+</body>
+</html>

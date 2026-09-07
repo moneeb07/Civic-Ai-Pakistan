@@ -1,5 +1,13 @@
 import * as React from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import {
+  FlatList,
+  ImageBackground,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -9,6 +17,21 @@ import type { ClarificationThread, TrackedReport, TrackingSummary } from "@/api/
 import { StatusProgress } from "@/civic/status-progress";
 import { Empty, ErrorNote, Loading } from "@/components/ui";
 import { colors, formatDate, radius, spacing } from "@/theme";
+
+const dashboardHeroImage = require("../../assets/images/dashboard-hero.webp");
+
+/*
+ * Icon + soft tint per figure, matching the web dashboard's `StatCard tone`
+ * system exactly — the same four colours, because a citizen who checks a
+ * report's status on the phone and then on the laptop should recognise the
+ * red/amber/green at a glance rather than re-learn it.
+ */
+const STAT_TONES = {
+  neutral: { icon: "document-text-outline", bg: colors.civic50, fg: colors.civic700 },
+  danger: { icon: "alert-circle-outline", bg: "#fdf1f3", fg: "#a81d33" },
+  warning: { icon: "time-outline", bg: "#fdf6ea", fg: "#c2790a" },
+  success: { icon: "checkmark-circle-outline", bg: "#eefaf5", fg: "#0b8f6a" },
+} as const;
 
 interface TrackingPayload {
   summary: TrackingSummary;
@@ -52,8 +75,22 @@ export function CitizenHome() {
         <View>
           {tracking.error ? <ErrorNote message={tracking.error} /> : null}
 
-          <Text style={styles.greeting}>{greeting()}, {firstName(me?.user.name)}</Text>
-          <Text style={styles.greetingSub}>How can we help improve your city today?</Text>
+          {/*
+            The same photograph and technique as the web dashboard's hero
+            band — a real image, not a plain header, carrying the citizen's
+            own real greeting. `resizeMode="cover"` inside a height set by
+            content (padding, not a fixed number) is the same trick used on
+            web: the box is sized by what has to fit in it, and the photo
+            simply crops to match, rather than the other way round.
+          */}
+          <ImageBackground source={dashboardHeroImage} resizeMode="cover" style={styles.hero}>
+            <View style={styles.heroScrim} />
+            <Text style={styles.heroEyebrow}>CLEANER CITIES · BRIGHTER PAKISTAN</Text>
+            <Text style={styles.greeting}>
+              {greeting()}, {firstName(me?.user.name)} 👋
+            </Text>
+            <Text style={styles.greetingSub}>How can we help improve your city today?</Text>
+          </ImageBackground>
 
           {/*
             A department waiting on an answer is the only thing here that blocks
@@ -78,13 +115,37 @@ export function CitizenHome() {
             </Pressable>
           ) : null}
 
-          {/* The four figures from the web dashboard, same order, same meaning. */}
+          {/* The four figures from the web dashboard, same order, same tones. */}
           {summary ? (
             <View style={styles.statGrid}>
-              <Stat label="My reports" value={summary.total} hint={summary.drafts > 0 ? `${summary.drafts} still a draft` : "All submitted"} />
-              <Stat label="Reported" value={summary.reported} hint="Awaiting a department" tint="#a81d33" />
-              <Stat label="In process" value={summary.inProcess} hint="Being worked on" tint="#c2790a" />
-              <Stat label="Resolved" value={summary.resolved} hint="Confirmed fixed" emphasis />
+              <Stat
+                tone="neutral"
+                label="My reports"
+                value={summary.total}
+                hint={summary.drafts > 0 ? `${summary.drafts} still a draft` : "All submitted"}
+                onPress={() => router.push("/reports")}
+              />
+              <Stat
+                tone="danger"
+                label="Reported"
+                value={summary.reported}
+                hint="Awaiting a department"
+                onPress={() => router.push("/reports")}
+              />
+              <Stat
+                tone="warning"
+                label="In process"
+                value={summary.inProcess}
+                hint="Being worked on"
+                onPress={() => router.push("/reports")}
+              />
+              <Stat
+                tone="success"
+                label="Resolved"
+                value={summary.resolved}
+                hint="Confirmed fixed"
+                onPress={() => router.push("/reports")}
+              />
             </View>
           ) : null}
 
@@ -173,38 +234,91 @@ function Stat({
   label,
   value,
   hint,
-  tint,
-  emphasis,
+  tone,
+  onPress,
 }: {
   label: string;
   value: number;
   hint: string;
-  tint?: string;
-  emphasis?: boolean;
+  tone: keyof typeof STAT_TONES;
+  onPress?: () => void;
 }) {
+  const palette = STAT_TONES[tone];
+
   return (
-    <View style={[styles.stat, emphasis && styles.statEmphasis]}>
-      <Text style={[styles.statLabel, emphasis && { color: "rgba(255,255,255,0.75)" }]}>
-        {label.toUpperCase()}
-      </Text>
-      <Text
-        style={[
-          styles.statValue,
-          tint ? { color: tint } : null,
-          emphasis && { color: colors.white },
-        ]}
-      >
+    <Pressable
+      accessibilityRole={onPress ? "button" : undefined}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.stat,
+        { backgroundColor: palette.bg },
+        pressed && onPress && { opacity: 0.85 },
+      ]}
+    >
+      <View style={styles.statTop}>
+        <View style={[styles.statIcon, { backgroundColor: palette.fg }]}>
+          <Ionicons name={palette.icon} size={15} color={colors.white} />
+        </View>
+        <Text style={styles.statLabel}>{label.toUpperCase()}</Text>
+        {onPress ? (
+          <Ionicons name="arrow-forward" size={13} color={colors.muted} style={{ marginLeft: "auto" }} />
+        ) : null}
+      </View>
+      <Text style={[styles.statValue, { color: tone === "neutral" ? colors.ink : palette.fg }]}>
         {value}
       </Text>
-      <Text style={[styles.statHint, emphasis && { color: "rgba(255,255,255,0.75)" }]}>{hint}</Text>
-    </View>
+      <Text style={styles.statHint}>{hint}</Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   list: { padding: spacing.lg, gap: spacing.md },
-  greeting: { fontSize: 24, fontWeight: "800", color: colors.ink, letterSpacing: -0.5 },
-  greetingSub: { marginTop: 2, fontSize: 14, color: colors.muted, marginBottom: spacing.lg },
+
+  /*
+   * `marginHorizontal`/`marginTop` of `-spacing.lg` exactly cancel the
+   * FlatList's own `contentContainerStyle` padding, so the photo reaches the
+   * true edges of the screen instead of sitting inset like every other card
+   * in this list — the same full-bleed treatment the web dashboard's hero
+   * gets, achieved here by cancelling a padding rather than avoiding one.
+   */
+  hero: {
+    marginHorizontal: -spacing.lg,
+    marginTop: -spacing.lg,
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.lg,
+    overflow: "hidden",
+  },
+  heroScrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(255,255,255,0.55)" },
+  heroEyebrow: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 1,
+    color: colors.civic700,
+    textShadowColor: "rgba(255,255,255,0.85)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  greeting: {
+    marginTop: 6,
+    fontSize: 22,
+    fontWeight: "800",
+    color: colors.ink,
+    letterSpacing: -0.5,
+    textShadowColor: "rgba(255,255,255,0.85)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  greetingSub: {
+    marginTop: 3,
+    fontSize: 13.5,
+    color: colors.ink,
+    textShadowColor: "rgba(255,255,255,0.85)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
 
   prompt: {
     flexDirection: "row",
@@ -225,13 +339,17 @@ const styles = StyleSheet.create({
     width: "48%",
     padding: spacing.md,
     borderRadius: radius.md,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.line,
   },
-  statEmphasis: { backgroundColor: colors.civic600, borderColor: colors.civic600 },
-  statLabel: { fontSize: 10, fontWeight: "700", color: colors.muted, letterSpacing: 0.5 },
-  statValue: { marginTop: 4, fontSize: 26, fontWeight: "800", color: colors.ink },
+  statTop: { flexDirection: "row", alignItems: "center", gap: 6 },
+  statIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  statLabel: { fontSize: 9.5, fontWeight: "700", color: colors.muted, letterSpacing: 0.4 },
+  statValue: { marginTop: 8, fontSize: 26, fontWeight: "800" },
   statHint: { fontSize: 11, color: colors.muted, marginTop: 1 },
 
   reportCta: {

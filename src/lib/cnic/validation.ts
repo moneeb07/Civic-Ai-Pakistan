@@ -17,6 +17,25 @@
  * model has confirmed, field by field, that it can actually READ the card —
  * not that it could plausibly guess it.
  *
+ * WHERE THE PIXEL HEURISTICS DO AND DO NOT GET A VOTE
+ *
+ * Local pixel analysis guides the CAMERA and nothing else. It colours the
+ * live border, and it decides when the shutter is worth firing — both jobs it
+ * is good at, because both are questions about a video frame in the moment.
+ *
+ * Once a photograph exists, it has no vote. The verdict belongs entirely to
+ * the vision model, because the model is the only thing in the system that can
+ * actually read the card, and it reads cards that the heuristics score badly.
+ * A CNIC held at an angle, or lit unevenly, is routinely legible to GPT-4o
+ * while measuring poorly on tilt and glare — and the earlier design blended
+ * the two (45% pixels, 55% model), so those local numbers could drag a
+ * perfectly readable photograph below the bar and send the citizen back to
+ * re-take a picture that was never the problem.
+ *
+ * So the split is: heuristics decide WHEN to ask; the model decides WHAT the
+ * answer is. Signals are still recorded in `reasons` for the debug panel,
+ * where they are diagnostic rather than authoritative.
+ *
  * Pure and framework-free, so every branch is provable without a camera, a
  * network call or a browser. The Gemini call and the pixel maths live
  * elsewhere; this decides what their outputs mean.
@@ -49,6 +68,29 @@ export const REQUIRED_FIELDS: Record<CnicSide, string[]> = {
   front: ["cnicNumber", "name", "fatherOrHusbandName", "dateOfBirth"],
   back: ["presentAddress"],
 };
+
+/**
+ * Human names for those fields.
+ *
+ * When the model can read the card but not a particular line of it, saying
+ * WHICH line is far more useful than "picture is not readable" — the citizen
+ * can see the thumb over their own CNIC number once it is pointed at.
+ */
+const FIELD_LABELS: Record<string, string> = {
+  cnicNumber: "CNIC number",
+  name: "name",
+  fatherOrHusbandName: "father's or husband's name",
+  dateOfBirth: "date of birth",
+  presentAddress: "present address",
+};
+
+/** "the CNIC number", "the name and date of birth", "the name, the number and …" */
+function listFields(fields: string[]): string {
+  const labels = fields.map((field) => FIELD_LABELS[field] ?? field);
+  if (labels.length === 1) return labels[0]!;
+  if (labels.length === 2) return `${labels[0]} and ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`;
+}
 
 /**
  * The acceptance bar, as a 0–100 quality score.
@@ -220,37 +262,61 @@ export function scoreFrom(signals: QualitySignals): number {
   return score;
 }
 
-/** The single most useful thing to tell the citizen, given what failed. */
-function instructionFor(
-  signals: QualitySignals | null,
-  vision: VisionReadability | null,
-): string {
-  /*
-   * Ordered by what a person can most directly act on. Only ONE is ever
-   * shown: a list of five faults is not guidance, it is an error report, and
-   * somebody holding a card up to a lens can fix exactly one thing at a time.
-   */
-  if (vision && !vision.isPakistaniCnic) {
+/**
+ * What to tell the citizen about the LIVE frame, from pixels alone.
+ *
+ * This is the one place local signals still speak, and it is the right place:
+ * there is no photograph yet and no model verdict to have, so measured pixels
+ * are the only evidence. It steers the card into position; it never decides
+ * whether a captured image is good.
+ */
+function liveInstructionFor(signals: QualitySignals): string {
+  if (signals.completeness < 0.5) return "Fit the whole CNIC inside the frame.";
+  if (signals.documentConfidence < 0.4) return "Move the CNIC closer to the camera.";
+  if (signals.sharpness < 0.5) return "Hold the CNIC steady — the text is blurred.";
+  if (signals.glareFree < 0.5) return "Tilt the card slightly to avoid the reflection.";
+  if (signals.lighting < 0.5) return "Move somewhere brighter.";
+  if (signals.perspective < 0.5) return "Hold the card flat and square to the camera.";
+  return "Hold steady — improving image quality.";
+}
+
+/**
+ * The single most useful thing to tell the citizen, given what the MODEL saw.
+ *
+ * Local signals are not consulted. They describe a video frame, not the
+ * photograph that was actually judged, and letting them speak here produced
+ * instructions that contradicted the verdict — "hold the card flat" about an
+ * image the model had rejected for glare.
+ *
+ * Ordered by what a person can most directly act on, and only ONE is ever
+ * shown: a list of five faults is not guidance, it is an error report, and
+ * somebody holding a card up to a lens can fix exactly one thing at a time.
+ */
+function instructionFor(vision: VisionReadability, unreadableFields: string[]): string {
+  if (!vision.isPakistaniCnic) {
     return "That doesn't look like a Pakistani CNIC. Please show the card itself.";
   }
 
-  if (signals) {
-    if (signals.completeness < 0.5) return "Fit the whole CNIC inside the frame.";
-    if (signals.documentConfidence < 0.4) return "Move the CNIC closer to the camera.";
-    if (signals.sharpness < 0.5) return "Hold the CNIC steady — the text is blurred.";
-    if (signals.glareFree < 0.5) return "Tilt the card slightly to avoid the reflection.";
-    if (signals.lighting < 0.5) return "Move somewhere brighter.";
-    if (signals.perspective < 0.5) return "Hold the card flat and square to the camera.";
+  /*
+   * A named fault comes first, because it says what to CHANGE. Naming the
+   * unreadable field without it ("the number isn't legible") tells somebody
+   * what is wrong but not what to do about it.
+   */
+  if (vision.blurDetected) return "Hold the CNIC steady — the text is blurred.";
+  if (vision.glareDetected) return "Tilt the card slightly to avoid the reflection.";
+  if (vision.cropped) return "Part of the card is cut off. Fit all four corners in.";
+  if (vision.perspectiveIssue) return "Hold the card flat and square to the camera.";
+
+  /*
+   * No fault the model could name, but it still could not read a required
+   * line. Saying which line is the only useful thing left — and it is often
+   * something only the citizen can see, like a finger over the number.
+   */
+  if (unreadableFields.length > 0) {
+    return `We couldn't read the ${listFields(unreadableFields)}. Make sure that part of the card is clear and nothing is covering it.`;
   }
 
-  if (vision) {
-    if (vision.blurDetected) return "Hold the CNIC steady — the text is blurred.";
-    if (vision.glareDetected) return "Tilt the card slightly to avoid the reflection.";
-    if (vision.cropped) return "Part of the card is cut off. Fit all four corners in.";
-    if (vision.perspectiveIssue) return "Hold the card flat and square to the camera.";
-  }
-
-  return "Hold steady — improving image quality.";
+  return "Move somewhere brighter and take the photo again.";
 }
 
 /**
@@ -286,7 +352,7 @@ export function validateCnic(input: {
     return {
       state: "NOT_A_CNIC",
       score: 0,
-      instruction: instructionFor(signals, vision),
+      instruction: instructionFor(vision, REQUIRED_FIELDS[expectedSide]),
       unreadableFields: REQUIRED_FIELDS[expectedSide],
       observedSide: vision.observedSide,
       reasons: ["not a Pakistani CNIC"],
@@ -341,23 +407,30 @@ export function validateCnic(input: {
   }
 
   /*
-   * The score blends measured pixels with the model's own confidence. When
-   * there are no local signals (a gallery upload), the model's confidence
-   * carries it alone rather than being padded with an invented pixel score.
+   * The score is the model's confidence, and only that.
+   *
+   * It used to be 45% local pixels and 55% model. That blend was the bug: the
+   * heuristics measure a video frame against synthetic test patterns, so a
+   * hand-held card at a slight angle under a bulb scores badly on tilt and
+   * glare even when the model reads every character on it perfectly. Those
+   * local numbers could pull a legible photograph under the bar, and the
+   * citizen was sent to re-take a picture that was never the problem.
+   *
+   * Pixels are still recorded, because the debug panel and the tuning of
+   * CAPTURE_SCORE both depend on seeing them — but they are evidence about the
+   * CAMERA, not about the photograph's legibility.
    */
-  const pixelScore = signals ? scoreFrom(signals) : null;
   const visionScore = Math.round(vision.confidence * 100);
-  const score =
-    pixelScore === null ? visionScore : Math.round(pixelScore * 0.45 + visionScore * 0.55);
+  const score = visionScore;
 
-  if (signals) reasons.push(`pixel score ${pixelScore}`);
+  if (signals) reasons.push(`pixel score ${scoreFrom(signals)} (diagnostic only)`);
   reasons.push(`vision confidence ${visionScore}`);
   reasons.push(`model verdict ${vision.readability}`);
 
   const fail = (state: ValidationState): ValidationResult => ({
     state,
     score,
-    instruction: instructionFor(signals, vision),
+    instruction: instructionFor(vision, unreadableFields),
     unreadableFields,
     observedSide: vision.observedSide,
     reasons,
@@ -373,7 +446,22 @@ export function validateCnic(input: {
   // obscured by a thumb is a perfect photograph and a useless scan.
   if (unreadableFields.length > 0) return fail("NEEDS_IMPROVEMENT");
   if (vision.readability === "partially_readable") return fail("NEEDS_IMPROVEMENT");
-  if (score < ACCEPT_SCORE) return fail("NEEDS_IMPROVEMENT");
+
+  /*
+   * The overall-confidence bar applies only when the model declined to answer
+   * field by field.
+   *
+   * With a breakdown, the per-field check above IS the accuracy gate, and a
+   * stricter one: every required field has already had to clear
+   * FIELD_READABLE_MIN individually. Re-rejecting on an overall number after
+   * that would refuse a model that said "readable, and here is 0.9 confidence
+   * on each field you asked for" merely because its summary confidence was
+   * 0.8 — punishing honest calibration.
+   *
+   * Without a breakdown the summary is the only evidence there is, so it must
+   * carry the full bar on its own.
+   */
+  if (!gaveBreakdown && score < ACCEPT_SCORE) return fail("NEEDS_IMPROVEMENT");
 
   return {
     state: "READABLE",
@@ -450,6 +538,6 @@ export function preScreen(signals: QualitySignals): {
     score,
     tier,
     instruction:
-      tier === "green" ? "CNIC detected. Hold still…" : instructionFor(signals, null),
+      tier === "green" ? "CNIC detected. Hold still…" : liveInstructionFor(signals),
   };
 }

@@ -15,20 +15,29 @@ const t = getDictionary();
  * Mobile-first: a single column with the progress bar pinned under the header,
  * so the citizen can always see where they are. On desktop the same column is
  * centred rather than stretched — a form does not get easier to read at 1400px.
+ *
+ * `wide` is the one exception, and it is earned rather than decorative. The
+ * identity step is not a form: it is a camera, a checklist and a picture of
+ * the card being asked for, and those three want to be visible AT ONCE. Squeeze
+ * them into a 36rem column and the citizen scrolls between the instructions and
+ * the viewfinder while holding a card up to the lens.
  */
 export function RegistrationShell({
   step,
   backHref,
+  wide = false,
   children,
 }: {
   step: RegistrationStep;
   backHref?: string;
+  wide?: boolean;
   children: ReactNode;
 }) {
+  const column = wide ? "max-w-6xl" : "max-w-xl";
   return (
     <div className="flex min-h-full flex-col bg-canvas">
       <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur">
-        <div className="mx-auto w-full max-w-xl px-5 py-3.5">
+        <div className={`mx-auto w-full ${column} px-5 py-3.5`}>
           <div className="flex items-center gap-3">
             {backHref ? (
               <Link
@@ -53,7 +62,7 @@ export function RegistrationShell({
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-xl flex-1 px-5 py-6 pb-16">
+      <main className={`mx-auto w-full ${column} flex-1 px-5 py-6 pb-16`}>
         {children}
       </main>
     </div>

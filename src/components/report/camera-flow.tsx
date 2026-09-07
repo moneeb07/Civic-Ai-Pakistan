@@ -292,8 +292,17 @@ export function CameraFlow({ reportId }: { reportId: string }) {
   }
 
   if (phase === "analyzing") {
+    /*
+     * `max-w-xl mx-auto` here and on every phase below except the idle
+     * capture screen: the shell itself is now `wide`, to give that one
+     * screen the side-by-side room its instructional card needs, but a
+     * spinner or a confirm dialog stretched across the same width would just
+     * look sparse. Opting each of THEM back into a narrow reading column
+     * keeps the shell's width a property of the STEP, not of every phase
+     * inside it.
+     */
     return (
-      <>
+      <div className="mx-auto max-w-xl">
         <ReportStepHeading title={t.report.analyzingTitle} subtitle={t.report.analyzingBody} />
         <div className="rounded-[20px] border border-line bg-surface p-10 text-center" role="status" aria-live="polite">
           <span className="relative mx-auto flex size-16 items-center justify-center">
@@ -303,14 +312,14 @@ export function CameraFlow({ reportId }: { reportId: string }) {
             </span>
           </span>
         </div>
-      </>
+      </div>
     );
   }
 
   if (phase === "confirm" && vision?.category) {
     const categoryLabel = t.report.categories[vision.category];
     return (
-      <>
+      <div className="mx-auto max-w-xl">
         <ReportStepHeading title={t.report.confirmIssuePrompt} />
 
         <div className="mb-5 flex items-start gap-2.5 rounded-[18px] border border-amber-200 bg-amber-50 px-4 py-3.5">
@@ -406,13 +415,13 @@ export function CameraFlow({ reportId }: { reportId: string }) {
             {t.report.confirmNo}
           </Button>
         </div>
-      </>
+      </div>
     );
   }
 
   if (phase === "choose-category") {
     return (
-      <>
+      <div className="mx-auto max-w-xl">
         <ReportStepHeading
           title={t.report.chooseCategoryPrompt}
           subtitle={vision && !vision.detected ? t.report.notDetectedBody : t.report.visionUnavailableBody}
@@ -433,11 +442,13 @@ export function CameraFlow({ reportId }: { reportId: string }) {
             </button>
           ))}
         </div>
-      </>
+      </div>
     );
   }
 
-  // -- capture --------------------------------------------------------------
+  // -- capture ---------------------------------------------------------------
+  // The one phase that actually uses the shell's full wide column — see
+  // ReportCamera for the instructional layout that needs the room.
   return (
     <>
       <ReportStepHeading title={t.report.cameraTitle} subtitle={t.report.cameraSubtitle} />

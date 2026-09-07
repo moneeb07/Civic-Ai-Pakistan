@@ -70,6 +70,14 @@
    * ground it is built on. Green-biased rather than a true navy so the two
    * halves still belong to one product.
    */
+  /*
+   * The flag's own green, #01411C, as specified for the national flag.
+   * Kept apart from the civic brand ramp on purpose: this token means "this is
+   * the flag of Pakistan" and must not shift if the brand green is ever
+   * retuned. Used by the landmark band on the landing hero.
+   */
+  --color-flag: #01411c;
+
   --color-slate-deep: #0c1a16;
   --color-slate-panel: #12241e;
   --color-slate-line: #1f3a31;
@@ -136,5 +144,59 @@ body {
   *::before,
   *::after {
     transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+ * Entrance reveals.
+ *
+ * Driven by CSS rather than JavaScript on purpose — see the note at the top of
+ * components/landing/reveal.tsx. The short version: a stylesheet animation
+ * cannot fail to finish, so the page is never left blank by a script that did
+ * not run.
+ *
+ * `.civic-reveal-now` plays on load, for content above the fold.
+ * `.civic-reveal-inview` applies NOTHING until the observer sets data-shown,
+ * so an un-hydrated page shows its content plainly instead of hiding it.
+ */
+@keyframes civic-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.civic-reveal-now > *,
+.civic-reveal-inview[data-shown="true"] > * {
+  animation: civic-reveal 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* The stagger. nth-child rather than a custom property so it needs no JS. */
+.civic-reveal-now > *:nth-child(1),
+.civic-reveal-inview[data-shown="true"] > *:nth-child(1) { animation-delay: 0ms; }
+.civic-reveal-now > *:nth-child(2),
+.civic-reveal-inview[data-shown="true"] > *:nth-child(2) { animation-delay: 70ms; }
+.civic-reveal-now > *:nth-child(3),
+.civic-reveal-inview[data-shown="true"] > *:nth-child(3) { animation-delay: 140ms; }
+.civic-reveal-now > *:nth-child(4),
+.civic-reveal-inview[data-shown="true"] > *:nth-child(4) { animation-delay: 210ms; }
+.civic-reveal-now > *:nth-child(5),
+.civic-reveal-inview[data-shown="true"] > *:nth-child(5) { animation-delay: 280ms; }
+.civic-reveal-now > *:nth-child(6),
+.civic-reveal-inview[data-shown="true"] > *:nth-child(6) { animation-delay: 350ms; }
+.civic-reveal-now > *:nth-child(7),
+.civic-reveal-inview[data-shown="true"] > *:nth-child(7) { animation-delay: 420ms; }
+.civic-reveal-now > *:nth-child(8),
+.civic-reveal-inview[data-shown="true"] > *:nth-child(8) { animation-delay: 490ms; }
+
+/* Rule 2: remove the movement, never the content. */
+@media (prefers-reduced-motion: reduce) {
+  .civic-reveal-now > *,
+  .civic-reveal-inview[data-shown="true"] > * {
+    animation: none;
   }
 }

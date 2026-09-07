@@ -232,6 +232,14 @@ export function CnicCapture({
   title = t.identity.autoCapture.scannerTitleFront,
   side,
 }: CnicCaptureProps) {
+  /*
+   * Which face of the card this instance is asking for, said in the button.
+   * "Scan CNIC" is ambiguous at the exact moment it matters — the citizen is
+   * holding a two-sided card and has to know which face to present.
+   */
+  const scanLabel = side === "front" ? t.identity.scanFront : t.identity.scanBack;
+  const uploadLabel = side === "front" ? t.identity.uploadFront : t.identity.uploadBack;
+
   const { enabled: voiceEnabled, setEnabled: setVoiceEnabled } = useAssistedMode();
   const { supported: voiceSupported, speak, stop: stopSpeaking } = useVoiceGuidance();
   const videoRef = React.useRef<HTMLVideoElement>(null);
@@ -1072,7 +1080,7 @@ export function CnicCapture({
                 disabled={disabled || validating}
               >
                 <ImageUp className="size-4" aria-hidden="true" />
-                {t.identity.upload}
+                {uploadLabel}
               </Button>
             )}
           </div>
@@ -1230,7 +1238,7 @@ export function CnicCapture({
                 className="mt-2.5 inline-flex min-h-10 items-center gap-2 rounded-[var(--radius-field)] bg-white px-4 text-[0.8125rem] font-semibold text-ink transition-colors hover:bg-white/90"
               >
                 <ImageUp className="size-4" aria-hidden="true" />
-                {t.identity.upload}
+                {uploadLabel}
               </button>
             </div>
           ) : null}
@@ -1336,7 +1344,7 @@ export function CnicCapture({
           className={cn(cameraState === "denied" && "hidden sm:inline-flex")}
         >
           <Camera className="size-4" aria-hidden="true" />
-          {t.identity.scan}
+          {scanLabel}
         </Button>
 
         <Button
@@ -1347,7 +1355,7 @@ export function CnicCapture({
           disabled={disabled}
         >
           {!busy ? <ImageUp className="size-4" aria-hidden="true" /> : null}
-          {t.identity.upload}
+          {uploadLabel}
         </Button>
       </div>
 

@@ -14,7 +14,7 @@ import {
 
 import { VoiceAssistBar } from "@/components/assisted/voice-assist-bar";
 import { useAssistedMode } from "@/components/assisted/assisted-mode-provider";
-import { CaptureGuidance, CnicCapture } from "@/components/registration/cnic-capture";
+import { CnicCapture } from "@/components/registration/cnic-capture";
 import { CnicWorkbench } from "@/components/registration/cnic-workbench";
 import { StepHeading } from "@/components/registration/registration-shell";
 import { FormAlert } from "@/components/auth/form-alert";
@@ -804,7 +804,6 @@ export function IdentityFlow() {
   if (phase === "capture-back") {
     return (
       <>
-        <StepHeading title={t.identity.backTitle} subtitle={t.identity.backSubtitle} />
         <VoiceAssistBar phrase={voicePhrase} className="mb-5" />
 
         {error ? <div className="mb-5"><FormAlert message={error} /></div> : null}
@@ -833,6 +832,9 @@ export function IdentityFlow() {
         ) : null}
 
         <CnicWorkbench
+          heading={
+            <StepHeading title={t.identity.backTitle} subtitle={t.identity.backSubtitle} />
+          }
           title="Scan the back"
           subtitle="The side with your address on it"
           front={{ state: "captured", dataUrl: thumbs.front }}
@@ -848,7 +850,6 @@ export function IdentityFlow() {
                 previewAlt="The back of your CNIC"
                 title={t.identity.autoCapture.scannerTitleBack}
               />
-              <CaptureGuidance />
 
               <button
                 type="button"
@@ -867,7 +868,6 @@ export function IdentityFlow() {
   // -- Capture: front of the card --------------------------------------------
   return (
     <>
-      <StepHeading title={t.identity.title} subtitle={t.identity.subtitle} />
       <VoiceAssistBar phrase={voicePhrase} className="mb-5" />
 
       {error ? <div className="mb-5"><FormAlert message={error} /></div> : null}
@@ -891,6 +891,7 @@ export function IdentityFlow() {
       ) : null}
 
       <CnicWorkbench
+        heading={<StepHeading title={t.identity.title} subtitle={t.identity.subtitle} />}
         title="Scan the front"
         subtitle="The side with your photograph on it"
         front={{ state: "capturing", dataUrl: thumbs.front }}
@@ -904,7 +905,6 @@ export function IdentityFlow() {
             disabled={submitting}
             title={t.identity.autoCapture.scannerTitleFront}
           />
-          <CaptureGuidance />
 
           <button
             type="button"
