@@ -11,6 +11,21 @@ import path from "node:path";
 
 const UPLOAD_ROOT = path.join(process.cwd(), ".data", "uploads", "reports");
 
+/**
+ * Validates a stored key, returning it normalised or "" if it escapes.
+ *
+ * The value arrives from a database column and is used to address an object in
+ * remote storage, where there is no filesystem to refuse a traversal for us —
+ * so "../profile-images/someone.jpg" has to be rejected here or not at all.
+ * Keys are exactly "<userId>/<reportId>.<ext>": two plain segments, nothing else.
+ */
+export function safeReportKey(relativePath: string): string {
+  const segments = relativePath.split("/").filter(Boolean);
+  if (segments.length !== 2) return "";
+  if (segments.some((segment) => segment === "." || segment === "..")) return "";
+  return segments.join("/");
+}
+
 export function reportImageAbsolutePath(relativePath: string): string {
   // Resolve and confine to the upload root so a crafted stored value cannot
   // escape the directory.

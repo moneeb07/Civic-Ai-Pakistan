@@ -1,7 +1,8 @@
 import "server-only";
 
-import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
+
+import { PROFILE_BUCKET, deleteObject, readObject, writeObject } from "@/lib/storage";
 
 /*
  * Profile photos are written outside the public directory and served through an
@@ -11,7 +12,11 @@ import path from "node:path";
  * the duration of the extraction request.
  */
 
-const UPLOAD_ROOT = path.join(process.cwd(), ".data", "uploads", "profile");
+/*
+ * Storage keys are flat here — one object per user, named by id. The bucket
+ * decides WHERE that lives; this file only decides what it is called, which is
+ * why the local path helper below survives even on Supabase.
+ */
 
 const EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -38,30 +43,25 @@ export async function storeProfileImage(
 
   const bytes = Buffer.from(match[2], "base64");
 
-  await mkdir(UPLOAD_ROOT, { recursive: true });
-
   const fileName = `${userId}.${extension}`;
-  await writeFile(path.join(UPLOAD_ROOT, fileName), bytes);
+  await writeObject(PROFILE_BUCKET, fileName, bytes, mimeType);
 
   return { relativePath: fileName, mimeType };
 }
 
-export function profileImageAbsolutePath(relativePath: string): string {
-  // Resolve and confine to the upload root so a crafted stored value cannot
-  // escape the directory.
-  const resolved = path.resolve(UPLOAD_ROOT, path.basename(relativePath));
-  return resolved.startsWith(UPLOAD_ROOT) ? resolved : "";
+/**
+ * Reads a stored photo back, or null when it is gone.
+ *
+ * basename() is the containment check: the stored value reaches here from a
+ * database column, and a key of "../reports/someone-else.jpg" must not resolve
+ * to another citizen's photograph.
+ */
+export async function readProfileImage(relativePath: string): Promise<Buffer | null> {
+  return readObject(PROFILE_BUCKET, path.basename(relativePath));
 }
 
 export async function deleteProfileImage(relativePath: string): Promise<void> {
-  const absolute = profileImageAbsolutePath(relativePath);
-  if (!absolute) return;
-
-  try {
-    await unlink(absolute);
-  } catch {
-    // Already gone is fine.
-  }
+  await deleteObject(PROFILE_BUCKET, path.basename(relativePath));
 }
 
 export function mimeTypeForPath(relativePath: string): string {

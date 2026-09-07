@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { reportImageAbsolutePath, sniffImageMimeType } from "../src/lib/report-image-utils";
+import {
+  reportImageAbsolutePath,
+  safeReportKey,
+  sniffImageMimeType,
+} from "../src/lib/report-image-utils";
 
 /*
  * The client's declared Content-Type is never trusted (brief: "Do not trust
@@ -58,5 +62,43 @@ describe("reportImageAbsolutePath", () => {
   it("refuses an absolute path override attempt", () => {
     const resolved = reportImageAbsolutePath("/etc/passwd");
     assert.equal(resolved, "");
+  });
+});
+
+describe("safeReportKey", () => {
+  /*
+   * This is the only containment check left on the remote-storage path. With
+   * files on disk the OS refuses a traversal for us; an object store happily
+   * fetches whatever key it is given, so a stored value of
+   * "../profile-images/victim.jpg" would return another citizen's photograph
+   * unless it is rejected here.
+   */
+  it("accepts the shape the app actually writes", () => {
+    assert.equal(safeReportKey("user_123/report_456.jpg"), "user_123/report_456.jpg");
+  });
+
+  it("rejects traversal out of the bucket", () => {
+    assert.equal(safeReportKey("../profile-images/victim.jpg"), "");
+    assert.equal(safeReportKey("user/../../etc/passwd"), "");
+  });
+
+  it("rejects a bare filename with no owner segment", () => {
+    // Without the user id there is nothing tying the object to who owns it.
+    assert.equal(safeReportKey("report_456.jpg"), "");
+  });
+
+  it("rejects anything deeper than owner/file", () => {
+    assert.equal(safeReportKey("a/b/c.jpg"), "");
+  });
+
+  it("tolerates a leading or doubled slash rather than mangling it", () => {
+    // Empty segments are dropped, so these normalise to the valid two-segment
+    // key instead of being silently turned into something else.
+    assert.equal(safeReportKey("/user_123/report_456.jpg"), "user_123/report_456.jpg");
+    assert.equal(safeReportKey("user_123//report_456.jpg"), "user_123/report_456.jpg");
+  });
+
+  it("rejects an empty key", () => {
+    assert.equal(safeReportKey(""), "");
   });
 });

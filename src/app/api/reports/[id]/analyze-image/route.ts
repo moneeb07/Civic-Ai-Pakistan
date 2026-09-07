@@ -1,9 +1,8 @@
-import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/session";
 import { getOwnedReportRow, updateOwnedReport } from "@/lib/report/store";
-import { reportImageAbsolutePath } from "@/lib/report-image";
+import { readReportImage } from "@/lib/report-image";
 import {
   VisionAnalysisError,
   getVisionProvider,
@@ -50,13 +49,12 @@ export async function POST(
     return NextResponse.json({ success: false, message: "Please add a photo first." }, { status: 400 });
   }
 
-  const absolute = reportImageAbsolutePath(report.imagePath);
-  if (!absolute) {
+  const bytes = await readReportImage(report.imagePath);
+  if (!bytes) {
     return NextResponse.json({ success: false, message: "That photo could not be read." }, { status: 500 });
   }
 
   try {
-    const bytes = await readFile(absolute);
     const result = await getVisionProvider().analyzeImage(bytes, report.imageMimeType);
 
     const updated = await updateOwnedReport(id, session.user.id, {

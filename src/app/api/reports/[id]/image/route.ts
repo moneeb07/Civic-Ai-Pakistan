@@ -1,11 +1,10 @@
-import { readFile } from "node:fs/promises";
 import { NextResponse } from "next/server";
 
 import { getSession } from "@/lib/session";
 import { getOwnedReportRow, updateOwnedReport } from "@/lib/report/store";
 import {
   mimeTypeForReportPath,
-  reportImageAbsolutePath,
+  readReportImage,
   sniffImageMimeType,
   storeReportImage,
 } from "@/lib/report-image";
@@ -102,18 +101,13 @@ export async function GET(
   const report = await getOwnedReportRow(id, session.user.id);
   if (!report?.imagePath) return new NextResponse(null, { status: 404 });
 
-  const absolute = reportImageAbsolutePath(report.imagePath);
-  if (!absolute) return new NextResponse(null, { status: 404 });
+  const bytes = await readReportImage(report.imagePath);
+  if (!bytes) return new NextResponse(null, { status: 404 });
 
-  try {
-    const bytes = await readFile(absolute);
-    return new NextResponse(new Uint8Array(bytes), {
-      headers: {
-        "content-type": mimeTypeForReportPath(report.imagePath),
-        "cache-control": "private, max-age=300",
-      },
-    });
-  } catch {
-    return new NextResponse(null, { status: 404 });
-  }
+  return new NextResponse(new Uint8Array(bytes), {
+    headers: {
+      "content-type": mimeTypeForReportPath(report.imagePath),
+      "cache-control": "private, max-age=300",
+    },
+  });
 }
