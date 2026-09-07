@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
+import { FlowDirection } from "@/components/i18n/flow-direction";
 import { LanguageToggle } from "@/components/i18n/language-toggle";
 
 const STEPS = [
@@ -40,6 +41,7 @@ export function ReportShell({
   const column = wide ? "max-w-5xl" : "max-w-xl";
 
   return (
+    <FlowDirection>
     <div className="flex min-h-full flex-col bg-canvas">
       <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur">
         <div className={`mx-auto w-full ${column} px-5 py-3.5`}>
@@ -118,6 +120,7 @@ export function ReportShell({
 
       <main className={`mx-auto w-full ${column} flex-1 px-5 py-6 pb-16`}>{children}</main>
     </div>
+    </FlowDirection>
   );
 }
 

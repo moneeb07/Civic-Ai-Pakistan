@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Lock, Menu, X } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
-import { LanguageToggle } from "@/components/i18n/language-toggle";
 import { Button } from "@/components/ui/button";
 
 /*
@@ -42,14 +41,6 @@ export function HeroHeader() {
         </Link>
 
         <div className="ms-auto flex items-center gap-1.5 sm:gap-2">
-          {/*
-            This was a button that said "English" and did nothing at all — a
-            placeholder from before a second dictionary existed. It is the real
-            switch now, and it shows both languages at once rather than
-            opening a menu: a dropdown has to be understood before it can be
-            opened, which is no use to the citizen it is offering something to.
-          */}
-          <LanguageToggle className="hidden bg-surface/90 shadow-sm backdrop-blur md:inline-flex" />
 
           {/* Authority Sign In and Get Started: sm and up only, in the row. */}
           <Button
@@ -94,9 +85,6 @@ export function HeroHeader() {
           className="border-b border-line bg-surface shadow-lg sm:hidden"
         >
           <div className="flex flex-col gap-2 px-5 py-4">
-            <div className="px-3 py-1">
-              <LanguageToggle />
-            </div>
 
             <Link
               href="/gov/login"

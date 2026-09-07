@@ -14,13 +14,13 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://REPLACE-WITH-YOUR-DEPLOYED-URL"
+        "EXPO_PUBLIC_API_BASE_URL": "https://civic-ai-pakistan-flax.vercel.app"
       }
     },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://REPLACE-WITH-YOUR-DEPLOYED-URL"
+        "EXPO_PUBLIC_API_BASE_URL": "https://civic-ai-pakistan-flax.vercel.app"
       }
     }
   },

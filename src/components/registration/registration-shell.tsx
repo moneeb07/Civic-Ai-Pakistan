@@ -13,6 +13,7 @@ import { ArrowLeft } from "lucide-react";
 import { CivicAILogo } from "@/components/brand/civicai-logo";
 import { StepProgress } from "@/components/registration/step-progress";
 import { useT } from "@/components/i18n/locale-provider";
+import { FlowDirection } from "@/components/i18n/flow-direction";
 import { LanguageToggle } from "@/components/i18n/language-toggle";
 import type { RegistrationStep } from "@/lib/registration/schema";
 
@@ -44,6 +45,7 @@ export function RegistrationShell({
   const t = useT();
   const column = wide ? "max-w-6xl" : "max-w-xl";
   return (
+    <FlowDirection>
     <div className="flex min-h-full flex-col bg-canvas">
       <header className="sticky top-0 z-10 border-b border-line bg-surface/95 backdrop-blur">
         <div className={`mx-auto w-full ${column} px-5 py-3.5`}>
@@ -90,6 +92,7 @@ export function RegistrationShell({
         {children}
       </main>
     </div>
+    </FlowDirection>
   );
 }
 

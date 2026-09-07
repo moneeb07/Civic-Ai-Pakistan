@@ -12,6 +12,7 @@ import Link from "next/link";
 import { CivicAILogo } from "@/components/brand/civicai-logo";
 import { CivicAIVisual } from "@/components/brand/civicai-visual";
 import { useT } from "@/components/i18n/locale-provider";
+import { FlowDirection } from "@/components/i18n/flow-direction";
 import { LanguageToggle } from "@/components/i18n/language-toggle";
 
 /*
@@ -23,6 +24,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
   const t = useT();
 
   return (
+    <FlowDirection>
     <div className="flex min-h-full flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] xl:grid-cols-2">
       {/* Brand panel — desktop only */}
       <aside className="relative hidden overflow-hidden bg-civic-900 lg:flex lg:flex-col lg:justify-between lg:p-14">
@@ -73,5 +75,6 @@ export function AuthShell({ children }: { children: ReactNode }) {
         </div>
       </main>
     </div>
+    </FlowDirection>
   );
 }

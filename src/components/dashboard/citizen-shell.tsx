@@ -3,6 +3,7 @@ import Link from "next/link";
 import { MessagesSquare, PlusCircle } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
+import { FlowDirection } from "@/components/i18n/flow-direction";
 import { LanguageToggle } from "@/components/i18n/language-toggle";
 import { CitizenNav } from "@/components/dashboard/citizen-nav";
 import { Avatar } from "@/components/ui/avatar";
@@ -35,6 +36,7 @@ export function CitizenShell({
   children: ReactNode;
 }) {
   return (
+    <FlowDirection>
     <div className="flex min-h-full flex-col bg-canvas lg:flex-row">
       {/* Sidebar — desktop only. */}
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-e border-line bg-surface px-4 py-5 lg:flex">
@@ -107,5 +109,6 @@ export function CitizenShell({
         <main className="flex-1 px-5 py-6 sm:px-7 sm:py-8">{children}</main>
       </div>
     </div>
+    </FlowDirection>
   );
 }

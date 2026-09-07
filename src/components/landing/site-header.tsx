@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Menu, X } from "lucide-react";
 
 import { CivicAILogo } from "@/components/brand/civicai-logo";
-import { LanguageToggle } from "@/components/i18n/language-toggle";
 import { cn } from "@/lib/utils";
 
 /*
@@ -60,18 +59,6 @@ export function SiteHeader() {
         </nav>
 
         <div className="ms-auto flex items-center gap-2">
-          {/*
-            Language is a first-class control, not a footer afterthought: a
-            large share of citizens will read the Urdu interface, and burying
-            the switch is how they never find it.
-
-            This was a placeholder that said "English" and did nothing. It is
-            now wired to the dictionary — and it shows both languages side by
-            side rather than opening a menu, because a dropdown has to be
-            understood before it can be opened, which is no use to the person
-            it is offering something to.
-          */}
-          <LanguageToggle />
 
           <button
             type="button"

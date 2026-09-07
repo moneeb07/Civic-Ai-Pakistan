@@ -3,7 +3,6 @@ import { Inter } from "next/font/google";
 
 import { LocaleProvider } from "@/components/i18n/locale-provider";
 import { getRequestLocale } from "@/lib/i18n/server";
-import { getDirection } from "@/lib/i18n";
 import "./globals.css";
 
 const inter = Inter({
@@ -42,7 +41,13 @@ export default async function RootLayout({
   return (
     <html
       lang={locale}
-      dir={getDirection(locale)}
+      /*
+       * Always ltr. `dir` on the document mirrored the permanently-English
+       * landing page — flex rows reversed, logo on the right, full stops on
+       * the wrong side of English sentences. Direction now belongs to the
+       * translated flows; see components/i18n/flow-direction.tsx.
+       */
+      dir="ltr"
       className={`${inter.variable} h-full`}
     >
       <body className="min-h-full">
